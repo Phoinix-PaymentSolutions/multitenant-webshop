@@ -2,7 +2,6 @@
 import { notFound } from 'next/navigation';
 import { getStore, getStoreProducts} from '@/lib/database';
 import StoreClient from '@/app/store/[subdomain]/StoreClient';
-import { Database } from 'lucide-react';
 
 interface StorePageProps {
   params: {

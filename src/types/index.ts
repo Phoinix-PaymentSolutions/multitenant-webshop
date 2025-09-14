@@ -33,7 +33,7 @@ export interface Product {
   name: string;
   description: string;
   price: number;
-  imageUrl?: string;
+  imageUrl?: string | null;
   category: string;
   inventory: number;
   active: boolean;
