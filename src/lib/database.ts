@@ -9,7 +9,8 @@ import {
   addDoc,
   updateDoc,
   serverTimestamp,
-  orderBy 
+  orderBy, 
+  FieldValue
 } from 'firebase/firestore';
 import { db } from './firebase';
 import type { Store, Product, Order, Customer, CartItem } from '@/types';
@@ -90,10 +91,10 @@ export async function updateOrderStatus(
   }
 ): Promise<void> {
   try {
-    const updateData: any = {
-      status,
-      updatedAt: serverTimestamp()
-    };
+    const updateData: Partial<Omit<Order, 'updatedAt'> & { updatedAt: Date | FieldValue }> = {
+  status,
+  updatedAt: serverTimestamp()
+};
     
     if (paymentData) {
       Object.assign(updateData, paymentData);
