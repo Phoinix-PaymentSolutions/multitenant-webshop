@@ -13,6 +13,18 @@ import {
 } from '@heroicons/react/24/outline';
 import type { Store, Product, CartItem } from '@/types';
 
+// Utility function for debouncing
+function debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
 // ------------------------------------------------
 // Shared UI Components (moved here to fix import errors)
 // ------------------------------------------------
@@ -238,6 +250,17 @@ interface CategoryTabsProps {
 
 const CategoryTabs = ({ categories, activeCategory, onSelectCategory, productCounts, brandColor, textColor }: CategoryTabsProps) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const activeTabRef = useRef<HTMLButtonElement>(null);
+
+  // New useEffect to scroll the active tab into view when the activeCategory changes.
+  useEffect(() => {
+    if (activeTabRef.current) {
+      activeTabRef.current.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'nearest'
+      });
+    }
+  }, [activeCategory]);
 
   const scrollLeft = () => {
     if (scrollContainerRef.current) {
@@ -273,6 +296,7 @@ const CategoryTabs = ({ categories, activeCategory, onSelectCategory, productCou
             {categories.map((category) => (
               <button
                 key={category}
+                ref={activeCategory === category ? activeTabRef : null}
                 onClick={() => onSelectCategory(category)}
                 className={`whitespace-nowrap px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200 flex items-center space-x-1
                   ${activeCategory === category
@@ -449,20 +473,22 @@ export default function StoreClient({ store, products, isLoading = false }: Stor
     });
     return counts;
   }, [groupedProducts]);
-
+  
   // Debounced search
   const debouncedSearch = useCallback(
     debounce((term: string) => setSearchTerm(term), 300),
     []
   );
-
+  
+  // This useEffect now uses a debounced scroll handler to prevent constant re-renders.
   useEffect(() => {
-    const handleScroll = () => {
-      const stickyHeaderHeight = 64; // Height of the sticky header with tabs, search, and sort
-      const buffer = 50;
+    const debouncedHandleScroll = debounce(() => {
+      const stickyHeaderHeight = 64;
+      const buffer = 100;
       let currentActiveCategory = '';
-
-      for (const category of Object.keys(categoryRefs.current)) {
+      
+      // Find the category currently in view
+      for (const category of categories) {
         const el = categoryRefs.current[category];
         if (el) {
           const rect = el.getBoundingClientRect();
@@ -471,15 +497,20 @@ export default function StoreClient({ store, products, isLoading = false }: Stor
           }
         }
       }
-      setActiveCategory(currentActiveCategory);
-    };
+      
+      // Only update state if the active category has actually changed to prevent re-renders
+      if (currentActiveCategory && currentActiveCategory !== activeCategory) {
+        setActiveCategory(currentActiveCategory);
+      }
+    }, 100); // 100ms debounce time
 
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [filteredProducts]);
+    window.addEventListener('scroll', debouncedHandleScroll);
+    
+    // Clean up the event listener
+    return () => window.removeEventListener('scroll', debouncedHandleScroll);
+  }, [categories, activeCategory]); // isScrollingByClick removed from dependency array
 
   const handleSelectCategory = (category: string) => {
-    setActiveCategory(category);
     const categoryRef = categoryRefs.current[category];
     if (categoryRef) {
       const stickyHeaderHeight = 64; // Height of the sticky header
@@ -832,16 +863,4 @@ export default function StoreClient({ store, products, isLoading = false }: Stor
       )}
     </div>
   );
-}
-
-// Utility function for debouncing
-function debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
-  func: T,
-  wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
 }
