@@ -5,25 +5,26 @@ import StoreClient from '@/app/store/[subdomain]/StoreClient';
 import Footer from '@/components/ui/Footer'; // Changed from 'import type' to 'import'
 
 interface StorePageProps {
-  params: {
+  params: Promise<{
     subdomain: string;
-  };
+  }>;
 }
 
-export default async function StorePage({ params }: StorePageProps) {
+export default async function StorePage(props: StorePageProps) {
+  const params = await props.params;
   const  { subdomain } = params;
-  
+
   // Fetch store and products on the server
   const [store, products] = await Promise.all([
     getStore(subdomain),
     getStoreProducts(subdomain)
   ]);
-  
+
   // If store doesn't exist, show 404
   if (!store) {
     notFound();
   }
-  
+
   // If store is inactive, show maintenance message
   if (!store.active) {
     return (
@@ -35,7 +36,7 @@ export default async function StorePage({ params }: StorePageProps) {
       </div>
     );
   }
-  
+
   return (
     <main>
       <StoreClient store={store} products={products} />
@@ -45,15 +46,16 @@ export default async function StorePage({ params }: StorePageProps) {
 }
 
 // Generate metadata for SEO
-export async function generateMetadata({ params }: StorePageProps) {
+export async function generateMetadata(props: StorePageProps) {
+  const params = await props.params;
   const store = await getStore(params.subdomain);
-  
+
   if (!store) {
     return {
       title: 'Store Not Found',
     };
   }
-  
+
   return {
     title: store.name,
     description: store.description || `Shop at ${store.name}`,
