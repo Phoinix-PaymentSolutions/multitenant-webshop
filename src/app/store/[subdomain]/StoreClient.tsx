@@ -10,7 +10,6 @@ import {
   TrashIcon,
   MagnifyingGlassIcon,
   XMarkIcon,
-  AdjustmentsHorizontalIcon
 } from '@heroicons/react/24/outline';
 import type { Store, Product, CartItem } from '@/types';
 
@@ -105,6 +104,8 @@ interface UpdatedProduct extends Product {
   isSale?: boolean;
   salePrice?: number;
 }
+
+type SortOption = 'name' | 'price-asc' | 'price-desc';
 
 // ------------------------------------------------
 // Custom hook for cart management
@@ -224,7 +225,7 @@ const SearchBar = ({ searchTerm, onSearchChange, onClear }: SearchBarProps) => (
 );
 
 // ------------------------------------------------
-// Enhanced CategoryTabs component
+// Enhanced CategoryTabs component with NoScrollbar styling
 // ------------------------------------------------
 interface CategoryTabsProps {
   categories: string[];
@@ -251,42 +252,53 @@ const CategoryTabs = ({ categories, activeCategory, onSelectCategory, productCou
   };
 
   return (
-    <div className="flex-1 flex items-center overflow-x-hidden">
-      <div className="hidden sm:flex items-center space-x-1 mr-2">
-        <Button onClick={scrollLeft} variant="ghost" size="sm">
-          <ChevronLeftIcon className="h-5 w-5" />
-        </Button>
-      </div>
-      <div ref={scrollContainerRef} className="flex-1 overflow-x-auto no-scrollbar">
-        <div className="flex space-x-4 py-2">
-          {categories.map((category) => (
-            <button
-              key={category}
-              onClick={() => onSelectCategory(category)}
-              className={`whitespace-nowrap px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200 flex items-center space-x-1
-                ${activeCategory === category
-                  ? ''
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-              style={activeCategory === category ? { backgroundColor: brandColor, color: textColor || '#ffffff' } : {}}
-            >
-              <span>{category}</span>
-              <span 
-                className={`text-xs px-1.5 py-0.5 rounded-full`}
-                style={activeCategory === category ? { backgroundColor: brandColor, color: textColor || '#ffffff' } : { backgroundColor: '#D1D5DB' }}
+    <>
+      <style jsx>{`
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
+      <div className="flex-1 flex items-center overflow-x-hidden">
+        <div className="hidden sm:flex items-center space-x-1 mr-2">
+          <Button onClick={scrollLeft} variant="ghost" size="sm">
+            <ChevronLeftIcon className="h-5 w-5" />
+          </Button>
+        </div>
+        <div ref={scrollContainerRef} className="flex-1 overflow-x-auto no-scrollbar">
+          <div className="flex space-x-4 py-2">
+            {categories.map((category) => (
+              <button
+                key={category}
+                onClick={() => onSelectCategory(category)}
+                className={`whitespace-nowrap px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200 flex items-center space-x-1
+                  ${activeCategory === category
+                    ? ''
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                style={activeCategory === category ? { backgroundColor: brandColor, color: textColor || '#ffffff' } : {}}
               >
-                {productCounts[category] || 0}
-              </span>
-            </button>
-          ))}
+                <span>{category}</span>
+                <span 
+                  className={`text-xs px-1.5 py-0.5 rounded-full`}
+                  style={activeCategory === category ? { backgroundColor: brandColor, color: textColor || '#ffffff' } : { backgroundColor: '#D1D5DB' }}
+                >
+                  {productCounts[category] || 0}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="hidden sm:flex items-center space-x-1 ml-2">
+          <Button onClick={scrollRight} variant="ghost" size="sm">
+            <ChevronRightIcon className="h-5 w-5" />
+          </Button>
         </div>
       </div>
-      <div className="hidden sm:flex items-center space-x-1 ml-2">
-        <Button onClick={scrollRight} variant="ghost" size="sm">
-          <ChevronRightIcon className="h-5 w-5" />
-        </Button>
-      </div>
-    </div>
+    </>
   );
 };
 
@@ -300,18 +312,6 @@ const ProductSkeleton = () => (
     <div className="h-3 bg-gray-200 rounded w-2/3 mb-2"></div>
     <div className="h-4 bg-gray-200 rounded w-1/3"></div>
   </div>
-);
-
-const NoScrollbar = () => (
-  <style jsx>{`
-    .no-scrollbar::-webkit-scrollbar {
-      display: none;
-    }
-    .no-scrollbar {
-      -ms-overflow-style: none;
-      scrollbar-width: none;
-    }
-  `}</style>
 );
 
 // ------------------------------------------------
@@ -388,8 +388,7 @@ export default function StoreClient({ store, products, isLoading = false }: Stor
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState<'name' | 'price-asc' | 'price-desc'>('name');
-  const [showMobileSort, setShowMobileSort] = useState(false);
+  const [sortBy, setSortBy] = useState<SortOption>('name');
   
   const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -411,14 +410,14 @@ export default function StoreClient({ store, products, isLoading = false }: Stor
 
   // Filtered and sorted products
   const filteredProducts = useMemo(() => {
-    let filtered = products.filter(product =>
+    const filtered = products.filter(product =>
       product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       product.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       product.category.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     // Sort products
-    filtered.sort((a, b) => {
+    return filtered.sort((a, b) => {
       switch (sortBy) {
         case 'price-asc':
           return a.price - b.price;
@@ -428,8 +427,6 @@ export default function StoreClient({ store, products, isLoading = false }: Stor
           return a.name.localeCompare(b.name);
       }
     });
-
-    return filtered;
   }, [products, searchTerm, sortBy]);
 
   // Grouped products
@@ -586,8 +583,8 @@ export default function StoreClient({ store, products, isLoading = false }: Stor
             <div className="w-full sm:w-auto flex-shrink-0 flex items-center space-x-2 order-2 sm:order-none">
               <select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className={`flex-1 text-sm border border-gray-300 rounded px-2 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${showMobileSort ? '' : 'hidden sm:block'}`}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                className="flex-1 text-sm border border-gray-300 rounded px-2 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="name">Sort by Name</option>
                 <option value="price-asc">Price: Low to High</option>
@@ -838,7 +835,7 @@ export default function StoreClient({ store, products, isLoading = false }: Stor
 }
 
 // Utility function for debouncing
-function debounce<T extends (...args: any[]) => any>(
+function debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
   func: T,
   wait: number
 ): (...args: Parameters<T>) => void {
