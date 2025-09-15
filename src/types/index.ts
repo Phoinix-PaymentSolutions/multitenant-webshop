@@ -13,6 +13,11 @@ export interface Store {
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
+  minimumOrder?: number;
+  deliveryFee?: number;
+  contactEmail?: string;
+  contactPhone?: string;
+  backgroundImageUrl?: string;
   // Social media
   socialMedia?: {
     instagram?: string;
@@ -39,10 +44,14 @@ export interface Product {
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
+  isSale?: boolean;
+  salePrice?: number;
 }
 
 export interface CartItem extends Product {
   quantity: number;
+  deliveryFee?: number;
+  minimumOrder?: number;
 }
 
 export interface Customer {
@@ -64,4 +73,6 @@ export interface Order {
   molliePaymentId?: string;
   createdAt: Date;
   updatedAt: Date;
+  deliveryFee?: number;
+  minimumOrder?: number;
 }

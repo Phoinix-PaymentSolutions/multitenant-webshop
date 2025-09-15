@@ -2,6 +2,7 @@
 import { notFound } from 'next/navigation';
 import { getStore, getStoreProducts} from '@/lib/database';
 import StoreClient from '@/app/store/[subdomain]/StoreClient';
+import Footer from '@/components/ui/Footer'; // Changed from 'import type' to 'import'
 
 interface StorePageProps {
   params: {
@@ -10,7 +11,7 @@ interface StorePageProps {
 }
 
 export default async function StorePage({ params }: StorePageProps) {
-  const { subdomain } = params;
+  const  { subdomain } = params;
   
   // Fetch store and products on the server
   const [store, products] = await Promise.all([
@@ -35,7 +36,12 @@ export default async function StorePage({ params }: StorePageProps) {
     );
   }
   
-  return <StoreClient store={store} products={products} />;
+  return (
+    <main>
+      <StoreClient store={store} products={products} />
+      <Footer store={store} />
+    </main>
+  );
 }
 
 // Generate metadata for SEO

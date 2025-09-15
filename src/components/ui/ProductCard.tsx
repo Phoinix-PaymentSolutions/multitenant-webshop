@@ -31,7 +31,7 @@ export const ProductCard = ({ product, onAddToCart }: ProductCardProps) => {
           className="mt-4 w-full"
           disabled={product.inventory <= 0}
         >
-          {product.inventory > 0 ? 'Add to Cart' : 'out of Stock'}
+          Add to Cart
         </Button>
       </div>
     </Card>
