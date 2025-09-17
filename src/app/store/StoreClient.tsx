@@ -349,7 +349,7 @@ const StorePage = ({ store, products, onAddToCart, searchTerm, sortBy }: StorePa
   const [activeCategory, setActiveCategory] = useState('All');
 
   const filteredProducts = useMemo(() => {
-    let filtered = products.filter(p =>
+   const filtered = products.filter(p =>
       (activeCategory === 'All' || p.category === activeCategory) &&
       (p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.description.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -446,7 +446,7 @@ const ReviewsPage = ({ onNavigateToStore }: ReviewsPageProps) => {
             </div>
             <p className="font-semibold text-lg">Amazing products and fast delivery!</p>
             <p className="text-gray-600 mt-1">
-              "I'm so impressed with the quality of the products and how quickly my order arrived. The packaging was also very nice."
+              
             </p>
             <p className="text-sm text-gray-400 mt-2">- Sarah J.</p>
           </div>
@@ -460,7 +460,7 @@ const ReviewsPage = ({ onNavigateToStore }: ReviewsPageProps) => {
             </div>
             <p className="font-semibold text-lg">Good quality, but a bit slow</p>
             <p className="text-gray-600 mt-1">
-              "The products are great, but the delivery took a bit longer than I expected. Overall, still a good experience."
+             
             </p>
             <p className="text-sm text-gray-400 mt-2">- David L.</p>
           </div>
@@ -474,7 +474,7 @@ const ReviewsPage = ({ onNavigateToStore }: ReviewsPageProps) => {
             </div>
             <p className="font-semibold text-lg">My go-to store now!</p>
             <p className="text-gray-600 mt-1">
-              "Everything about this store is perfect. Easy to use website, beautiful products, and excellent customer service. Highly recommend!"
+            
             </p>
             <p className="text-sm text-gray-400 mt-2">- Emily R.</p>
           </div>
@@ -657,14 +657,16 @@ export const StoreClient = ({ store, products: initialProducts, isLoading }: Sto
     });
   }, []);
 
-  const { cartTotal, deliveryFee, minimumOrder, isMinimumMet, finalDeliveryFee } = useMemo(() => {
+  const { cartTotal, deliveryFee, minimumOrder, isMinimumMet, finalDeliveryFee, freeDeliveryThreshold } = useMemo(() => {
     const minimumOrder = store?.minimumOrder || 0;
     const deliveryFee = store?.deliveryFee || 0;
+    const freeDeliveryThreshold = store?.freeDeliveryThreshold || 0;
     const cartTotal = cart.reduce((total, item) => total + item.totalPrice, 0);
-    const isMinimumMet = cartTotal >= minimumOrder;
+    const isMinimumMet = cartTotal >= freeDeliveryThreshold;
     const finalDeliveryFee = isMinimumMet ? 0 : deliveryFee;
+    
 
-    return { cartTotal, deliveryFee, minimumOrder, isMinimumMet, finalDeliveryFee };
+    return { cartTotal, deliveryFee, minimumOrder, isMinimumMet, finalDeliveryFee, freeDeliveryThreshold };
   }, [cart, store]);
 
   // Handle a new checkout function that opens the checkout form
@@ -907,7 +909,7 @@ export const StoreClient = ({ store, products: initialProducts, isLoading }: Sto
                     </div>
                     {!isMinimumMet && (
                       <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
-                        Add €{(minimumOrder - cartTotal).toFixed(2)} more for free delivery!
+                        Add €{(freeDeliveryThreshold - cartTotal).toFixed(2)} more for free delivery!
                       </div>
                     )}
                     <hr className="my-2" />
@@ -929,7 +931,7 @@ export const StoreClient = ({ store, products: initialProducts, isLoading }: Sto
                     }
                   </Button>
                   <p className="text-xs text-gray-500 text-center mt-2">
-                    Free delivery on orders over €{minimumOrder.toFixed(2)}
+                    Free delivery on orders over €{freeDeliveryThreshold.toFixed(2)}!
                   </p>
                 </div>
               )}

@@ -15,6 +15,7 @@ export interface Store {
   updatedAt: Date;
   minimumOrder?: number;
   deliveryFee?: number;
+  freeDeliveryThreshold?: number;
   contactEmail?: string;
   contactPhone?: string;
   backgroundImageUrl?: string;
