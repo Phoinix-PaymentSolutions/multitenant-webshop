@@ -224,3 +224,58 @@ Issues? Report them at https://github.com/firebase/firebase-tools/issues and att
 [debug] [2025-09-17T19:47:51.361Z] Finishing up request with event=close {"metadata":{"emulator":{"name":"functions"},"function":{"name":"us-central1-createMollieOnlinePayment"},"extension":{},"message":"Finishing up request with event=close"}}
 [debug] [2025-09-17T19:47:51.361Z] [work-queue] {"queuedWork":[],"queueLength":0,"runningWork":[],"workRunningCount":0}
 [debug] [2025-09-17T21:10:16.284Z] File C:\Users\killi\WebProjects\multitenant-webshop\functions\index.js changed, reloading triggers {"metadata":{"emulator":{"name":"functions"},"message":"File C:\\Users\\killi\\WebProjects\\multitenant-webshop\\functions\\index.js changed, reloading triggers"}}
+[debug] [2025-09-17T21:10:17.298Z] Validating nodejs source
+[debug] [2025-09-17T21:10:18.417Z] > [functions] package.json contents: {
+  "name": "functions",
+  "description": "Cloud Functions for Firebase",
+  "scripts": {
+    "lint": "eslint .",
+    "serve": "firebase emulators:start --only functions",
+    "shell": "firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "@google-cloud/secret-manager": "^6.1.0",
+    "@mollie/api-client": "^4.3.3",
+    "axios": "^1.12.2",
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.0.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.15.0",
+    "eslint-config-google": "^0.14.0",
+    "firebase-functions-test": "^3.1.0"
+  },
+  "private": true
+}
+[debug] [2025-09-17T21:10:18.417Z] Building nodejs source
+[debug] [2025-09-17T21:10:18.417Z] Failed to find version of module node: reached end of search path C:\Users\killi\WebProjects\multitenant-webshop\functions\node_modules
+[warn] !  functions: Your requested "node" version "22" doesn't match your global version "20". Using node@20 from host. 
+[debug] [2025-09-17T21:10:18.420Z] Could not find functions.yaml. Must use http discovery
+[debug] [2025-09-17T21:10:18.426Z] Found firebase-functions binary at 'C:\Users\killi\WebProjects\multitenant-webshop\functions\node_modules\.bin\firebase-functions'
+[info] Serving at port 8647
+
+[error] C:\Users\killi\WebProjects\multitenant-webshop\functions\index.js:43
+const functions = require("firebase-functions");
+      ^
+
+SyntaxError: Identifier 'functions' has already been declared
+    at wrapSafe (node:internal/modules/cjs/loader:1464:18)
+    at Module._compile (node:internal/modules/cjs/loader:1495:20)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+    at Module.load (node:internal/modules/cjs/loader:1266:32)
+    at Module._load (node:internal/modules/cjs/loader:1091:12)
+    at Module.require (node:internal/modules/cjs/loader:1289:19)
+    at require (node:internal/modules/helpers:182:18)
+    at loadModule (C:\Users\killi\WebProjects\multitenant-webshop\functions\node_modules\firebase-functions\lib\runtime\loader.js:40:16)
+    at loadStack (C:\Users\killi\WebProjects\multitenant-webshop\functions\node_modules\firebase-functions\lib\runtime\loader.js:157:23)
+    at C:\Users\killi\WebProjects\multitenant-webshop\functions\node_modules\firebase-functions\lib\bin\firebase-functions.js:102:60
+
+[debug] [2025-09-17T21:10:18.714Z] Got response code 400; body Failed to generate manifest from function source: Identifier 'functions' has already been declared
+[error] !!  functions: Failed to load function definition from source: FirebaseError: Functions codebase could not be analyzed successfully. It may have a syntax or runtime error {"metadata":{"emulator":{"name":"functions"},"message":"Failed to load function definition from source: FirebaseError: Functions codebase could not be analyzed successfully. It may have a syntax or runtime error"}}
