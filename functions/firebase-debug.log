@@ -279,3 +279,4 @@ SyntaxError: Identifier 'functions' has already been declared
 
 [debug] [2025-09-17T21:10:18.714Z] Got response code 400; body Failed to generate manifest from function source: Identifier 'functions' has already been declared
 [error] !!  functions: Failed to load function definition from source: FirebaseError: Functions codebase could not be analyzed successfully. It may have a syntax or runtime error {"metadata":{"emulator":{"name":"functions"},"message":"Failed to load function definition from source: FirebaseError: Functions codebase could not be analyzed successfully. It may have a syntax or runtime error"}}
+[debug] [2025-09-17T21:33:10.774Z] [worker-us-central1-createMollieOnlinePayment-c3745e7d-0e06-4899-9791-e3a886f09ee7]: exited {"metadata":{"emulator":{"name":"functions"},"function":{"name":"us-central1-createMollieOnlinePayment"},"extension":{},"message":"[worker-us-central1-createMollieOnlinePayment-c3745e7d-0e06-4899-9791-e3a886f09ee7]: exited"}}

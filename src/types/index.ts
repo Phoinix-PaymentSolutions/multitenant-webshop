@@ -19,6 +19,7 @@ export interface Store {
   contactEmail?: string;
   contactPhone?: string;
   backgroundImageUrl?: string;
+  ownerId: string;
   // Social media
   socialMedia?: {
     instagram?: string;

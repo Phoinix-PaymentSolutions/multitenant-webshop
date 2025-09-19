@@ -19,6 +19,16 @@ import {
 } from 'lucide-react';
 import type { Store, Product, CartItem as ImportedCartItem } from '@/types';
 import Image from 'next/image';
+import { initializeApp } from 'firebase/app';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import app from '@/lib/firebase';
+
+const functions = getFunctions(app);
+const createMollieOnlinePayment = httpsCallable(functions, 'createMollieOnlinePayment');
+const handleFormSubmit = async (e: React.FormEvent) => { e.preventDefault(); };
+
+ 
+
 
 // Utility function for debouncing
 function debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
@@ -105,6 +115,30 @@ interface CheckoutPageProps {
   clearCart: () => void;
 }
 
+interface UpdatedCartItem {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+  totalPrice: number;
+}
+
+interface UpdatedStore {
+  id: string;
+  name: string;
+  ownerId: string;
+  brandColor?: string;
+}
+
+interface UpdatedProduct {
+  id: string;
+  name: string;
+  price: number;
+  description: string;
+  imageUrl: string;
+  category: string;
+}
+
 const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, clearCart }: CheckoutPageProps) => {
   const [formData, setFormData] = useState({
     firstName: '',
@@ -114,6 +148,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
     phoneNumber: '',
     email: '',
     notes: '',
+    houseNumber: '',
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -124,42 +159,66 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Combine all data into a single object
-    const checkoutData = {
-      ...formData,
-      order: {
-        amount: (cartTotal + finalDeliveryFee).toFixed(2),
-        currency: 'EUR',
-        items: cart,
-        storeId: store.id,
+    // Build the payload for your Firebase function
+    const paymentData = {
+      userId: store.ownerId,
+      amount: (cartTotal + finalDeliveryFee).toFixed(2),
+      currency: 'EUR',
+      description: `Order from ${store.name} - ${cart.length} items`,
+      method: 'ideal', // could be dynamic later
+      customerInfo: {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email,
+        phone: formData.phoneNumber,
+        address: formData.address,
+        postalCode: formData.postalCode,
+        houseNumber: formData.houseNumber,
       },
+      metadata: {
+        orderId: `order_${Date.now()}`,
+        storeId: store.id,
+        storeName: store.name,
+        items: cart.map(item => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+        deliveryAddress: `${formData.address}, ${formData.postalCode}`,
+        customerNotes: formData.notes,
+        orderTotal: cartTotal,
+        deliveryFee: finalDeliveryFee,
+        totalAmount: cartTotal + finalDeliveryFee,
+      },
+      domain: window.location.hostname,
+      redirectUrl: `${window.location.origin}/order-success`,
+      webhookUrl: `${window.location.origin}/api/webhook/mollie`,
     };
 
     try {
-      const response = await fetch('/api/process-payment', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(checkoutData),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Payment processing failed');
+      const functions = getFunctions(); // use your initialized Firebase app if needed
+      const createMollieOnlinePayment = httpsCallable(functions, "createMollieOnlinePayment");
+
+      const result: any = await createMollieOnlinePayment(paymentData);
+      console.log("Payment created:", result);
+
+      // Redirect user to Mollie checkout
+      const checkoutUrl = result.data?.payment?._links?.checkout?.href;
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
+        return;
       }
 
-      const result = await response.json();
-      console.log('Payment successful:', result);
-
-      // Clear the cart and navigate back to the main store page
+      // Fallback: clear cart and go back
       clearCart();
       onBackToCart();
-      
     } catch (error) {
-      console.error('Error during checkout:', error);
-      // Handle the error (e.g., show an error message)
+      console.error("Error during checkout:", error);
+      // You could show a UI error message here
     }
   };
+
 
   return (
     <div className="max-w-3xl mx-auto p-6 sm:p-8 md:p-12">
@@ -195,26 +254,61 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
             </div>
           </div>
 
-          {/* Delivery Information */}
-          <div>
-            <h3 className="text-xl font-semibold mb-3">Delivery Information</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
-                <label htmlFor="address" className="block text-sm font-medium text-gray-700">Street Address</label>
-                <input type="text" id="address" name="address" value={formData.address} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label htmlFor="postalCode" className="block text-sm font-medium text-gray-700">Postal Code</label>
-                <input type="text" id="postalCode" name="postalCode" value={formData.postalCode} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" />
-              </div>
-            </div>
-          </div>
+{/* Delivery Information */}
+<div>
+  <h3 className="text-xl font-semibold mb-3">Delivery Information</h3>
+  
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    {/* Street Address full width */}
+    <div className="sm:col-span-2">
+      <label htmlFor="address" className="block text-sm font-medium text-gray-700">Street Address</label>
+      <input
+        type="text"
+        id="address"
+        name="address"
+        value={formData.address}
+        onChange={handleChange}
+        required
+        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+      />
+    </div>
+
+    {/* House Number */}
+    <div>
+      <label htmlFor="houseNumber" className="block text-sm font-medium text-gray-700">House Number</label>
+      <input
+        type="text"
+        id="houseNumber"
+        name="houseNumber"
+        value={formData.houseNumber}
+        onChange={handleChange}
+        required
+        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+      />
+    </div>
+
+    {/* Postal Code */}
+    <div>
+      <label htmlFor="postalCode" className="block text-sm font-medium text-gray-700">Postal Code</label>
+      <input
+        type="text"
+        id="postalCode"
+        name="postalCode"
+        value={formData.postalCode}
+        onChange={handleChange}
+        required
+        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+      />
+    </div>
+  </div>
+</div>
+          
 
           {/* Additional Notes */}
           <div>
             <h3 className="text-xl font-semibold mb-3">Notes</h3>
             <div>
-              <label htmlFor="notes" className="block text-sm font-medium text-gray-700">Order notes (optional)</label>
+              <label htmlFor="notes" className="block text-sm font-medium text-gray-700">Delivery Notes (optional)</label>
               <textarea id="notes" name="notes" rows={3} value={formData.notes} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"></textarea>
             </div>
           </div>
@@ -764,7 +858,7 @@ export const StoreClient = ({ store, products: initialProducts, isLoading }: Sto
           </h2>
           <div className="flex items-center space-x-4">
             {currentPage === 'store' && (
-              <div className="flex items-center space-x-2">
+              <div className="filled-white flex items-center space-x-2">
                 <span className="text-gray-600 text-sm">Sort by:</span>
                 <select
                   value={sortBy}
@@ -942,3 +1036,4 @@ export const StoreClient = ({ store, products: initialProducts, isLoading }: Sto
     </div>
   );
 }
+
