@@ -40,7 +40,7 @@ exports.helloWorld = functions.https.onRequest((req, res) => {
 });
 const admin = require("firebase-admin");
 const axios = require("axios");
-const functions = require("firebase-functions");
+const cors = require("cors")({ origin: true });
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 
 admin.initializeApp();
@@ -160,22 +160,35 @@ async function makeMollieApiRequest(userId, requestConfig, maxRetries = 1) {
 
 // --- Online payment function (NO AUTH REQUIRED) ---
 exports.createMollieOnlinePayment = functions.https.onCall(async (data, context) => {
-  // Validate required data
-  if (!data.userId) {
-    throw new functions.https.HttpsError("invalid-argument", "userId is required");
-  }
-  if (!data.amount || !data.currency || !data.description) {
-    throw new functions.https.HttpsError("invalid-argument", "amount, currency, and description are required");
+  // Validate required data from the frontend payload
+  if (!data.amount || !data.currency || !data.description || !data.metadata || !data.metadata.storeId) {
+    throw new functions.https.HttpsError("invalid-argument", "amount, currency, description, and metadata.storeId are required");
   }
 
-  const userId = data.userId; // The webshop owner's ID, passed from frontend
+  // Securely get the webshop owner's ID from the backend
+  const storeId = data.metadata.storeId;
+  const storeRef = admin.firestore().collection('stores').doc(storeId);
+  const storeDoc = await storeRef.get();
+
+  if (!storeDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Store not found with the provided storeId");
+  }
+
+  const userId = storeDoc.data().ownerId; // Get the owner's ID from the Firestore document
+
+  if (!userId) {
+      throw new functions.https.HttpsError("internal", "Store data is missing ownerId");
+  }
   
   const paymentData = {
     amount: { currency: data.currency, value: data.amount },
     description: data.description,
     redirectUrl: data.redirectUrl,
     webhookUrl: data.webhookUrl,
-    metadata: data.metadata || {},
+    metadata: {
+        ...data.metadata,
+        userId // Add the secured userId to metadata for webhook
+    } || {},
     method: data.method || "ideal", // Allow frontend to specify payment method
   };
 
@@ -191,7 +204,7 @@ exports.createMollieOnlinePayment = functions.https.onCall(async (data, context)
 
     // Store payment in Firestore
     await admin.firestore().collection(COLLECTION_ONLINE_PAYMENTS).doc(payment.id).set({
-      userId, // The webshop owner's ID
+      userId, // Use the secured userId
       paymentId: payment.id,
       status: payment.status,
       amount: payment.amount,

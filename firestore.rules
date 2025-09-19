@@ -1,0 +1,162 @@
+rules_version = '2';
+service cloud.firestore {
+match /databases/{database}/documents {
+// --- Public Collections (Visible without Authentication) ---
+// These collections are readable by anyone but require authentication for writing.
+
+// Store data is public for customers to view.
+match /stores/{document} {
+allow read: if true;
+allow create: if request.auth != null;
+allow write: if request.auth != null;
+allow delete: if false;
+}
+
+// Entry codes are public for customer verification.
+match /entry_codes/{document} {
+allow create: if false; // Note: Creating entry codes is now only possible via backend functions.
+allow read: if true;
+allow write: if false;
+allow delete: if false;
+}
+
+// Product data and categories are publicly readable for the storefront.
+match /products/{document} {
+allow create: if request.auth != null;
+allow read: if true;
+allow write: if request.auth != null;
+allow delete: if request.auth != null;
+}
+
+// FIX: Make Extras subcollection public for reads.
+match /products/{parent}/Extras/{document} {
+allow create: if request.auth != null;
+allow read: if true;
+allow write: if request.auth != null;
+allow delete: if request.auth != null;
+}
+
+// FIX: Make Inventory subcollection public for reads.
+match /products/{parent}/inventory/{document} {
+allow create: if request.auth != null;
+allow read: if true;
+allow write: if request.auth != null;
+allow delete: if request.auth != null;
+}
+
+match /category/{document} {
+allow create: if request.auth != null;
+allow read: if true;
+allow write: if request.auth != null;
+allow delete: if request.auth != null;
+}
+
+// --- Private Collections (Require Authentication) ---
+// All of these collections require the user to be authenticated to perform any action.
+
+match /YearlyFinishedTotals/{document} {
+allow create, read, write, delete: if request.auth != null;
+}
+
+match /subscriptions/{document} {
+allow create, read, write, delete: if request.auth != null;
+}
+
+match /mollie_profiles/{document} {
+allow create, read, write: if request.auth != null;
+allow delete: if false;
+}
+
+match /mollie_customers/{document} {
+allow create, read, write: if request.auth != null;
+allow delete: if false;
+}
+
+match /mollie_terminals/{document} {
+allow create, read, write: if request.auth != null;
+allow delete: if false;
+}
+
+match /mollie_terminals/{parent}/individual_terminals/{document} {
+allow create, read, write: if request.auth != null;
+allow delete: if false;
+}
+
+match /orders/{document} {
+allow create, read, write, delete: if request.auth != null;
+}
+
+match /orders/{parent}/items/{document} {
+allow create, read, write, delete: if request.auth != null;
+}
+
+match /finished_orders/{document} {
+allow create, read, write, delete: if request.auth != null;
+}
+
+match /finished_orders/{parent}/finished_items/{document} {
+allow create, read, write, delete: if request.auth != null;
+}
+
+match /finishedTotals/{document} {
+allow create, read, write, delete: if request.auth != null;
+}
+
+match /monthlyfinishedTotals/{document} {
+allow create, read, write, delete: if request.auth != null;
+}
+
+match /ProcessingOrders/{document} {
+allow create, read, write, delete: if request.auth != null;
+}
+
+match /ProcessingOrders/{parent}/ProcessingOrdersItems/{document} {
+allow create, read, write, delete: if request.auth != null;
+}
+
+match /products/{parent}/inventory/{document} {
+allow create, read, write, delete: if request.auth != null;
+}
+
+match /Users/{document} {
+allow create: if true;
+allow read, write: if request.auth != null;
+allow delete: if request.auth != null && request.auth.uid == document;
+}
+
+// --- General Rules ---
+// The following rules apply more broadly and can override other rules.
+// Be very careful with these, as they can cause security vulnerabilities.
+
+// This rule allows the specified email to read and write any document.
+// It's a powerful and potentially dangerous rule if the email is not controlled.
+match /{document=**} {
+allow read, write: if request.auth != null && request.auth.token.email == "firebase@flutterflow.io";
+}
+
+// Catch-all rule for nested collections to prevent unintended public read access.
+match /{path=**}/individual_terminals/{document} {
+allow read: if request.auth != null;
+}
+
+match /{path=**}/inventory/{document} {
+allow read: if request.auth != null;
+}
+
+match /{path=**}/items/{document} {
+allow read: if request.auth != null;
+}
+
+match /{path=**}/finished_items/{document} {
+allow read: if request.auth != null;
+}
+
+match /{path=**}/ProcessingOrdersItems/{document} {
+allow read: if request.auth != null;
+}
+
+match /{path=**}/Extras/{document} {
+allow read: if request.auth != null;
+}
+}
+}
