@@ -23,13 +23,6 @@ import { initializeApp } from 'firebase/app';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import app from '@/lib/firebase';
 
-const functions = getFunctions(app);
-const createMollieOnlinePayment = httpsCallable(functions, 'createMollieOnlinePayment');
-const handleFormSubmit = async (e: React.FormEvent) => { e.preventDefault(); };
-
- 
-
-
 // Utility function for debouncing
 function debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
   func: T,
@@ -156,8 +149,8 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleFormSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+const handleFormSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
 
     // Build the payload for your Firebase function
     const paymentData = {
@@ -195,12 +188,33 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
       redirectUrl: `${window.location.origin}/order-success`,
       webhookUrl: `${window.location.origin}/api/webhook/mollie`,
     };
+interface MolliePaymentPayload {
+  payment: {
+    id: string;
+    status: string;
+    amount: {
+      currency: string;
+      value: string;
+    };
+    description: string;
+    metadata: {
+      orderId: string;
+      storeId: string;
+      storeName: string;
+    };
+    _links: {
+      checkout: {
+        href: string;
+      };
+    };
+  };
+}
 
     try {
-      const functions = getFunctions(); // use your initialized Firebase app if needed
-      const createMollieOnlinePayment = httpsCallable(functions, "createMollieOnlinePayment");
+      const functions = getFunctions(app); // use your initialized Firebase app if needed
+      const createMollieOnlinePayment = httpsCallable<typeof paymentData, MolliePaymentPayload>(functions, "createMollieOnlinePayment");
 
-      const result: any = await createMollieOnlinePayment(paymentData);
+      const result = await createMollieOnlinePayment(paymentData);
       console.log("Payment created:", result);
 
       // Redirect user to Mollie checkout
