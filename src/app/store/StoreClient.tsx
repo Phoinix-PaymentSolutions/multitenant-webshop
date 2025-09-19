@@ -128,7 +128,8 @@ interface UpdatedProduct {
   name: string;
   price: number;
   description: string;
-  imageUrl: string;
+  imageUrl?: string | null; // This is the old line
+  // Change it to this:
   category: string;
 }
 
