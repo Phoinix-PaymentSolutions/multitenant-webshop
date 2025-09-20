@@ -1,5 +1,7 @@
 'use client';
 
+import { getStore, getStoreProducts } from '@/lib/database';
+import '@/lib/appcheck'
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   ShoppingCartIcon,
@@ -21,7 +23,9 @@ import type { Store, Product, CartItem as ImportedCartItem } from '@/types';
 import Image from 'next/image';
 import { initializeApp } from 'firebase/app';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import app from '@/lib/firebase';
+import { app, db } from '@/lib/firebase';
+
+
 
 // Utility function for debouncing
 function debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
@@ -382,13 +386,13 @@ const ProductCard = ({ product, onAddToCart, brandColor }: ProductCardProps) => 
       <p className="mt-1 text-sm text-gray-500 line-clamp-2">{product.description}</p>
       <div className="flex items-center justify-between mt-3">
         {product.onSale ? (
-          <div className="flex items-center">
-            <span className="text-xl font-bold text-red-600">€{(product.salePrice || product.price).toFixed(2)}</span>
-            <span className="text-sm text-gray-500 line-through ml-2">€{product.price.toFixed(2)}</span>
-          </div>
-        ) : (
-          <span className="text-xl font-bold text-gray-900">€{product.price.toFixed(2)}</span>
-        )}
+  <div className="flex items-center">
+    <span className="text-xl font-bold text-red-600">€{(product.salePrice || product.price || 0).toFixed(2)}</span>
+    <span className="text-sm text-gray-500 line-through ml-2">€{(product.price || 0).toFixed(2)}</span>
+  </div>
+) : (
+  <span className="text-xl font-bold text-gray-900">€{(product.price || 0).toFixed(2)}</span>
+)}
         <Button onClick={() => onAddToCart(product)} brandColor={brandColor} size="sm">
           <PlusIcon className="h-5 w-5" />
         </Button>
@@ -424,8 +428,8 @@ const OnSaleCard = ({ onSaleProducts, onAddToCart, brandColor }: OnSaleCardProps
             <div className="flex-1 min-w-0">
               <p className="font-semibold truncate">{product.name}</p>
               <div className="flex items-center space-x-2 mt-1">
-                <span className="text-red-600 font-bold">€{(product.salePrice || product.price).toFixed(2)}</span>
-                <span className="text-gray-500 text-sm line-through">€{(product.price).toFixed(2)}</span>
+                <span className="text-red-600 font-bold">€{(product.salePrice || product.price || 0).toFixed(2)}</span>
+                <span className="text-gray-500 text-sm line-through">€{(product.price || 0).toFixed(2)}</span>
               </div>
             </div>
             <Button
@@ -448,21 +452,23 @@ const OnSaleCard = ({ onSaleProducts, onAddToCart, brandColor }: OnSaleCardProps
 };
 
 const StorePage = ({ store, products, onAddToCart, searchTerm, sortBy }: StorePageProps) => {
-  const categories = useMemo(() => {
-    const allCategories = products.map(p => p.category);
-    return ['All', ...Array.from(new Set(allCategories))];
-  }, [products]);
+const categories = useMemo(() => {
+  const allCategories = products
+    .map(p => p.category)
+    .filter(category => category && typeof category === 'string');
+  return ['All', ...Array.from(new Set(allCategories)).sort()]; // Add .sort() here
+}, [products]);
 
   const onSaleProducts = useMemo(() => products.filter(p => p.onSale), [products]);
 
   const [activeCategory, setActiveCategory] = useState('All');
 
-  const filteredProducts = useMemo(() => {
-   const filtered = products.filter(p =>
-      (activeCategory === 'All' || p.category === activeCategory) &&
-      (p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.description.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+ const filteredProducts = useMemo(() => {
+  const filtered = products.filter(p =>
+    (activeCategory === 'All' || (p.category && p.category === activeCategory)) &&
+    (p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+     p.description?.toLowerCase().includes(searchTerm.toLowerCase())) // Add ? for safety
+  );
 
     // Sort the products based on the selected option
     switch (sortBy) {
@@ -494,20 +500,48 @@ const StorePage = ({ store, products, onAddToCart, searchTerm, sortBy }: StorePa
     <>
       <OnSaleCard onSaleProducts={onSaleProducts} onAddToCart={onAddToCart} brandColor={store?.brandColor} />
 
-      {/* Categories */}
-      <div className="mb-8 overflow-x-auto whitespace-nowrap scrollbar-hide">
-        {categories.map(category => (
-          <Button
-            key={category}
-            onClick={() => setActiveCategory(category)}
-            variant={activeCategory === category ? 'default' : 'outline'}
-            className="mr-2"
-            brandColor={activeCategory === category ? store?.brandColor : undefined}
-          >
-            {category}
-          </Button>
-        ))}
-      </div>
+{/* Categories with scroll buttons */}
+<div className="relative mb-8">
+  <div className="flex items-center">
+    <button
+      className="flex-shrink-0 p-2 rounded-full bg-white shadow-md mr-2"
+      onClick={() => {
+        const container = document.getElementById('categories-container');
+        container?.scrollBy({ left: -200, behavior: 'smooth' });
+      }}
+    >
+      <ChevronLeftIcon className="h-4 w-4" />
+    </button>
+    
+    <div
+      id="categories-container"
+      className="flex overflow-x-auto space-x-2 scrollbar-hide flex-1"
+      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+    >
+      {categories.map(category => (
+        <Button
+          key={category}
+          onClick={() => setActiveCategory(category)}
+          variant={activeCategory === category ? 'default' : 'outline'}
+          className="flex-shrink-0"
+          brandColor={activeCategory === category ? store?.brandColor : undefined}
+        >
+          {category}
+        </Button>
+      ))}
+    </div>
+    
+    <button
+      className="flex-shrink-0 p-2 rounded-full bg-white shadow-md ml-2"
+      onClick={() => {
+        const container = document.getElementById('categories-container');
+        container?.scrollBy({ left: 200, behavior: 'smooth' });
+      }}
+    >
+      <ChevronRightIcon className="h-4 w-4" />
+    </button>
+  </div>
+</div>
 
       {/* Product Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -695,19 +729,45 @@ interface UpdatedStore extends Store {
 }
 
 interface StoreClientProps {
-  store: UpdatedStore;
-  products: UpdatedProduct[];
-  isLoading: boolean;
+  storeId: string;
 }
 
-export const StoreClient = ({ store, products: initialProducts, isLoading }: StoreClientProps) => {
+
+export const StoreClient = ({ storeId }: StoreClientProps) => {
   const [cart, setCart] = useState<UpdatedCartItem[]>([]);
+   const [store, setStore] = useState<UpdatedStore | null>(null);
+  const [initialProducts, setInitialProducts] = useState<UpdatedProduct[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState<'store' | 'contact' | 'info' | 'reviews'>('store');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('name');
   const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+  const fetchData = async () => {
+    try {
+      const [storeData, productsData] = await Promise.all([
+        getStore(storeId),
+        getStoreProducts(storeId),
+      ]);
+      
+      setStore(storeData);
+      setInitialProducts(productsData || []);
+    } catch (error) {
+      console.error('Error fetching store data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  fetchData();
+}, [storeId]);
+
+// Add this after your useState declarations
+const handleSearchChange = useCallback(debounce((value: string) => {
+  setSearchTerm(value);
+}, 300), []);
 
   useEffect(() => {
     const checkIsMobile = () => {
@@ -725,6 +785,10 @@ export const StoreClient = ({ store, products: initialProducts, isLoading }: Sto
   }, [initialProducts]);
 
   const addToCart = useCallback((product: UpdatedProduct) => {
+    if (!product.price || product.price <= 0) {
+      console.log('Invalid product price, cannot add to cart.');
+      return; // Prevent adding products with invalid price
+    }
     setCart(prevCart => {
       const existingItem = prevCart.find(item => item.id === product.id);
       if (existingItem) {
@@ -784,20 +848,29 @@ export const StoreClient = ({ store, products: initialProducts, isLoading }: Sto
     setIsCartOpen(false); // Close the cart sidebar
   };
 
-  if (isLoading) {
-    return (
-      <div className="animate-pulse bg-white p-8 rounded-lg shadow-lg">
-        <div className="h-16 bg-gray-200 rounded-lg mb-6"></div>
-        <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
-        <div className="h-4 bg-gray-200 rounded w-1/2 mb-8"></div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-64 bg-gray-200 rounded-lg"></div>
-          ))}
-        </div>
+// Loading state
+if (isLoading) {
+  return (
+    <div className="flex items-center justify-center min-h-screen text-gray-600 p-4 bg-gray-50">
+      <div className="flex flex-col items-center">
+        <div className="w-16 h-16 border-4 border-t-4 border-gray-200 border-t-gray-900 rounded-full animate-spin"></div>
+        <p className="mt-4 text-lg">Loading store...</p>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
+// Store not found state
+if (!store) {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen text-gray-600 p-4 bg-gray-50">
+      <h1 className="text-4xl font-bold mb-4">Store Not Found</h1>
+      <p className="text-lg text-center">
+        We couldn't find a store at this address. Please check the URL and try again.
+      </p>
+    </div>
+  );
+}
 
   return (
     <div
@@ -846,7 +919,7 @@ export const StoreClient = ({ store, products: initialProducts, isLoading }: Sto
                 type="text"
                 placeholder="Search products..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 rounded-full border border-gray-300 focus:outline-none focus:border-blue-500"
               />
             </div>

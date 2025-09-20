@@ -34,6 +34,22 @@ export interface Store {
   };
 }
 
+export interface UpdatedProduct {
+  id: string;
+  storeId: string;
+  name: string;
+  description: string;
+  price: number;
+  imageUrl?: string | null;
+  category: string;
+  inventory: number;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  isSale?: boolean;
+  salePrice?: number;
+}
+
 export interface Product {
   id: string;
   storeId: string;

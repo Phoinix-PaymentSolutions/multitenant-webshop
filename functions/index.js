@@ -223,3 +223,111 @@ exports.createMollieOnlinePayment = functions.https.onCall(async (data, context)
     throw new functions.https.HttpsError("internal", "Failed to create online payment", { error: error.message });
   }
 });
+
+exports.createOrder = functions.https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    // Only allow POST requests
+    if (req.method !== 'POST') {
+      return res.status(405).send('Method Not Allowed');
+    }
+
+    const { storeId, customer, items } = req.body;
+
+    // Validate required data from the request body
+    if (!storeId || !customer || !items || items.length === 0) {
+      return res.status(400).send('Missing required order data.');
+    }
+
+    try {
+      const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+      const orderData = {
+        storeId,
+        customer,
+        items: items.map(item => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          imageUrl: item.imageUrl
+        })),
+        total,
+        status: 'pending',
+        paymentStatus: 'pending',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      const orderRef = await db.collection('orders').add(orderData);
+      return res.status(200).json({ success: true, orderId: orderRef.id });
+
+    } catch (error) {
+      console.error('Error creating order:', error);
+      return res.status(500).json({ success: false, message: 'Failed to create order.' });
+    }
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// Authenticated API for STORE OWNERS
+//
+// This function handles secure order management and requires an AUTHENTICATED user.
+// It is an onCall function, so Firebase handles the authentication and CORS automatically.
+// The owner's UID is automatically available in the context object.
+// ------------------------------------------------------------------------------------------------
+exports.manageOrders = functions.https.onCall(async (data, context) => {
+  // Check for authenticated user (store owner)
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
+  }
+
+  const userId = context.auth.uid;
+  const { action, storeId, orderId, status, paymentData } = data;
+
+  // First, verify that the authenticated user is the owner of the store
+  const storeRef = await db.collection('stores').doc(storeId).get();
+  if (!storeRef.exists || storeRef.data().ownerId !== userId) {
+    throw new functions.https.HttpsError('permission-denied', 'You do not have permission to manage this store.');
+  }
+
+  try {
+    if (action === 'getOrders') {
+      const ordersQuery = db.collection('orders')
+        .where('storeId', '==', storeId)
+        .orderBy('createdAt', 'desc');
+
+      const snapshot = await ordersQuery.get();
+      const orders = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      return { success: true, orders };
+
+    } else if (action === 'updateStatus') {
+      if (!orderId || !status) {
+        throw new functions.https.HttpsError('invalid-argument', 'Missing orderId or status for update action.');
+      }
+      
+      const orderRef = db.collection('orders').doc(orderId);
+      const updateData = {
+        status,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+      
+      if (paymentData) {
+        Object.assign(updateData, paymentData);
+      }
+      
+      await orderRef.update(updateData);
+      
+      return { success: true, message: 'Order status updated successfully.' };
+
+    } else {
+      throw new functions.https.HttpsError('invalid-argument', 'Invalid action specified.');
+    }
+  } catch (error) {
+    console.error('Error managing orders:', error);
+    throw new functions.https.HttpsError('internal', 'An error occurred while managing orders.', error.message);
+  }
+});
