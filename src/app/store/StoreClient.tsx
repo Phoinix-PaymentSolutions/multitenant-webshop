@@ -2,7 +2,7 @@
 
 import { getStore, getStoreProducts } from '@/lib/database';
 import '@/lib/appcheck'
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ShoppingCartIcon,
   PlusIcon,
@@ -21,9 +21,8 @@ import {
 } from 'lucide-react';
 import type { Store, Product, CartItem as ImportedCartItem } from '@/types';
 import Image from 'next/image';
-import { initializeApp } from 'firebase/app';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app, db } from '@/lib/firebase';
+import { app, } from '@/lib/firebase';
 
 
 
@@ -64,7 +63,7 @@ const Button = ({ children, onClick, variant = 'default', size = 'default', clas
   }[size];
 
   const brandColorStyle = brandColor ? { backgroundColor: brandColor, color: '#FFFFFF', borderColor: brandColor } : {};
-  const hoverStyle = brandColor ? { filter: 'brightness(90%)' } : {};
+ 
 
   const variantClasses = {
     default: 'text-white',
@@ -866,7 +865,7 @@ if (!store) {
     <div className="flex flex-col items-center justify-center min-h-screen text-gray-600 p-4 bg-gray-50">
       <h1 className="text-4xl font-bold mb-4">Store Not Found</h1>
       <p className="text-lg text-center">
-        We couldn't find a store at this address. Please check the URL and try again.
+        We couldn&apos;t find a store at this address. Please check the URL and try again.
       </p>
     </div>
   );

@@ -9,7 +9,7 @@ export const initializeAppCheckForDevelopment = () => {
   if (typeof window !== 'undefined' && !appCheckInitialized) {
     // Enable debug token for development
     if (process.env.NODE_ENV === 'development') {
-      (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+      (window as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN: boolean }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
       console.log('App Check debug mode enabled');
     }
     

@@ -31,14 +31,7 @@ export async function testConnection() {
 // Store functions
    export async function getStore(storeId: string): Promise<Store | null> {
   try {
-    console.log('=== DETAILED DEBUG ===');
-    console.log('Database app config:', db.app.options);
-    console.log('Database project ID from app:', db.app.options.projectId);
-    console.log('Database host:', (db as any)._settings?.host || 'unknown');
-    console.log('Database SSL:', (db as any)._settings?.ssl);
-    console.log('=====================');
-    
-    
+      
     const docRef = doc(db, 'stores', storeId);
     const docSnap = await getDoc(docRef);
     console.log('Document path:', docRef.path);
@@ -51,9 +44,9 @@ export async function testConnection() {
       console.log('No store found with ID:', storeId);
       return null;
     }
-   } catch (error: any) {
+   } catch (error: unknown) {
     console.error('Full error details:', error);
-    console.error('Error stack:', error.stack);
+    console.error('Error stack:', (error as Error).stack);
     throw error;
   }
 }
