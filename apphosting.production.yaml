@@ -1,0 +1,36 @@
+# apphosting.production.yaml (production environment overrides)
+runConfig:
+  cpu: 4
+  memoryMiB: 2048
+  maxInstances: 20
+  minInstances: 2  # Keep 2 instances warm for better performance
+  concurrency: 100
+
+env:
+  # Firebase Configuration for production - using production secrets
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    secret: AIzaSyBSDuGvsWZFHsflg-qn_-lkuwLRZqNVYq4
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    secret: swiftpos-z1ryn.firebaseapp.com
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    secret: swiftpos-z1ryn
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    secret: swiftpos-z1ryn.firebasestorage.app
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    secret: 950847399706
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    secret: 1:950847399706:web:b91aabb0bce588bd1eaea
+
+  # App Configuration
+  - variable: NODE_ENV
+    value: production
+    availability:
+      - BUILD
+      - RUNTIME
+  
+  # Production optimizations
+  - variable: NEXT_TELEMETRY_DISABLED
+    value: "1"
+    availability:
+      - BUILD
+      - RUNTIME
