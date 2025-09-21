@@ -4,19 +4,15 @@ import {
   getDoc, 
   getDocs, 
   query, 
-  DocumentData, 
-  QueryDocumentSnapshot,
   where
 } from 'firebase/firestore';
-import { app, db } from './firebase';
-import type { Store, Product, UpdatedProduct} from '@/types';
+import { db } from './firebase';
+import type { Store, UpdatedProduct} from '@/types';
 
 
 // Add this temporary test
 export async function testConnection() {
   try {
-    console.log('Testing basic connection...');
-    const testRef = collection(db, 'test');
     console.log('Collection reference created successfully');
     return true;
   } catch (error) {

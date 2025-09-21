@@ -40,7 +40,7 @@ exports.helloWorld = functions.https.onRequest((req, res) => {
 });
 const admin = require("firebase-admin");
 const axios = require("axios");
-const cors = require("cors")({ origin: true });
+const cors = require("cors")({ origin: ['https://your-production-domain.com', 'http://localhost:3000',], methods: ['GET', 'POST'], credentials:true });
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 
 admin.initializeApp();
