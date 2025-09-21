@@ -20,17 +20,19 @@ env:
     value: "950847399706"
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
     value: "1:950847399706:web:b91aabb0bce588bd1eaea"
-    
+
   # App Configuration
   - variable: NODE_ENV
     value: production
     availability:
       - BUILD
       - RUNTIME
-  
+
   # Next.js specific
   - variable: NEXT_TELEMETRY_DISABLED
     value: "1"
     availability:
       - BUILD
       - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_RECAPTCHA_SITE_KEY
+    secret: NEXT_PUBLIC_FIREBASE_RECAPTCHA_SITE_KEY
