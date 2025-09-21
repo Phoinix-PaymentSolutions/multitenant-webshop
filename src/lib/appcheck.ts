@@ -40,11 +40,12 @@ export const initializeAppCheckForWeb = () => {
       appCheck = newAppCheck;
       appCheckInitialized = true;
       console.log('App Check initialized successfully.');
-
+      console.log('Using reCAPTCHA key:', reCaptchaKey?.substring(0, 10) + '...');
     } catch (error) {
       console.error('App Check initialization failed:', error);
     }
   }
+  
 };
 
 if (typeof window !== 'undefined') {
