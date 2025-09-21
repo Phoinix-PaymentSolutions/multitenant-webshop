@@ -7,5 +7,6 @@ interface StorePageProps {
 }
 
 export default function StorePage({ params }: StorePageProps) {
+  console.log('Page received params:', params);
   return <StoreClient storeId={params.storeId} />;
 }
