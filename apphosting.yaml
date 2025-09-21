@@ -19,7 +19,7 @@ env:
   - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
     value: "950847399706"
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
-    value: "1:950847399706:web:b91aabb0bce588bd1eaea"
+    value: "1:950847399706:web:b91aabb0bce588bd1eaea3"
 
   # App Configuration
   - variable: NODE_ENV
