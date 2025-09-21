@@ -20,6 +20,7 @@ export function middleware(request: NextRequest) {
   // Handle different environments
   const isLocalhost = hostname.includes('localhost') || hostname.includes('127.0.0.1');
   const isVercel = hostname.includes('vercel.app');
+  const isFirebaseApp = hostname.includes('.web.app') || hostname.includes('.firebaseapp.com');
   
   // For localhost development - use query parameter
   if (isLocalhost) {
@@ -33,7 +34,30 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
   
-  // Extract subdomain for production
+  // Check if this is a custom domain (not your main app domain)
+  const isCustomDomain = !isLocalhost && !isVercel && !isFirebaseApp;
+  
+  if (isCustomDomain) {
+    // For custom domains, use the domain name as the store ID
+    const storeId = hostname.split('.')[0]; // Gets 'bakery' from 'bakery.com'
+    
+    if (path === '/') {
+      console.log('✅ Custom domain rewrite:', storeId);
+      url.pathname = `/store/${storeId}`;
+      return NextResponse.rewrite(url);
+    }
+    
+    // Handle other routes under custom domain
+    if (!path.startsWith('/store/')) {
+      console.log('✅ Custom domain route rewrite:', `${storeId}${path}`);
+      url.pathname = `/store/${storeId}${path}`;
+      return NextResponse.rewrite(url);
+    }
+    
+    return NextResponse.next();
+  }
+  
+  // Extract subdomain for your main app domain
   const parts = hostname.split('.');
   
   // Skip if www or main domain (no subdomain)
