@@ -1,6 +1,6 @@
 'use client';
 
-import { initializeAppCheck, ReCaptchaEnterpriseProvider, AppCheck } from 'firebase/app-check';
+import { initializeAppCheck, ReCaptchaV3Provider, AppCheck } from 'firebase/app-check';
 import { app } from './firebase';
 
 let appCheckInitialized = false;
@@ -32,7 +32,7 @@ export const initializeAppCheckForWeb = () => {
       
       // Initialize App Check with the determined key
       const newAppCheck = initializeAppCheck(app, {
-        provider: new ReCaptchaEnterpriseProvider(providerKey),
+        provider: new ReCaptchaV3Provider(providerKey),
         isTokenAutoRefreshEnabled: true
       });
       

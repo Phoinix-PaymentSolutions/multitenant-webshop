@@ -733,6 +733,13 @@ interface StoreClientProps {
 
 
 export const StoreClient = ({ storeId }: StoreClientProps) => {
+  console.log('StoreClient received storeId:', storeId, typeof storeId);
+
+  if (!storeId) {
+    console.error('No storeId provided!');
+    return <div>Error: No store ID provided</div>;
+  }
+  
   const [cart, setCart] = useState<UpdatedCartItem[]>([]);
    const [store, setStore] = useState<UpdatedStore | null>(null);
   const [initialProducts, setInitialProducts] = useState<UpdatedProduct[]>([]);
