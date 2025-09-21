@@ -17,3 +17,6 @@ export async function generateMetadata() {
     description: "Food delivery store"
   };
 }
+
+export const revalidate = 0; // Revalidate every 0 seconds
+export const dynamic = 'force-dynamic'; // Ensure the page is always rendered dynamically
