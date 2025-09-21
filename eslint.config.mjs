@@ -1,18 +1,22 @@
-import { FlatCompat } from '@eslint/eslintrc';
+// eslint.config.mjs
 import js from '@eslint/js';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-  recommendedConfig: js.configs.recommended,
-});
+import nextPlugin from '@next/eslint-plugin-next';
 
 export default [
-  ...compat.extends('next/core-web-vitals'),
+  // ESLint’s recommended rules
+  js.configs.recommended,
+
+  // Next.js core web vitals rules
+  {
+    plugins: {
+      '@next/next': nextPlugin,
+    },
+    rules: {
+      ...nextPlugin.configs['core-web-vitals'].rules,
+    },
+  },
+
+  // Apply to your project files
   {
     files: ['**/*.{js,jsx,ts,tsx}'],
     languageOptions: {
