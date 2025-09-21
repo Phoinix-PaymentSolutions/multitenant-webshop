@@ -2,7 +2,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
@@ -25,16 +24,6 @@ const missingVars = requiredEnvVars.filter((key) => !process.env[key]);
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-if (typeof window !== 'undefined') {
-  try {
-    initializeAppCheck(app, {
-      provider: new ReCaptchaV3Provider('YOUR_RECAPTCHA_SITE_KEY'),
-      isTokenAutoRefreshEnabled: true
-    });
-  } catch (error) {
-    console.log('App Check initialization failed:', error);
-  }
-}
 // Initialize services
 const db = getFirestore(app);
 const auth = getAuth(app);
