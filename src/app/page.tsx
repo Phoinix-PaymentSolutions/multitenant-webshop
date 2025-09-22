@@ -40,7 +40,7 @@ async function fetchAllStores(): Promise<Store[]> {
 // Data fetching function for categories
 async function fetchCategories(): Promise<Category[]> {
   try {
-    const categoriesCollection = collection(db, 'adminCollections');
+    const categoriesCollection = collection(db, 'adminCategories');
     const querySnapshot = await getDocs(categoriesCollection);
     const categories = querySnapshot.docs.map(doc => ({
       id: doc.id,
