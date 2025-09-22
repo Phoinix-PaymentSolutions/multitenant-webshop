@@ -6,7 +6,7 @@ export function middleware(request: NextRequest) {
   const path = url.pathname;
   
   console.log('🔄 Middleware:', { hostname, path, search: url.search });
-  
+
   // Skip API routes, static files, and Next.js internals
   if (
     path.startsWith('/api/') ||
@@ -34,22 +34,35 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
   
-  // Check if this is a custom domain (not your main app domain)
+  // Check if this is a custom domain (not development/hosting platforms)
   const isCustomDomain = !isLocalhost && !isVercel && !isFirebaseApp;
   
   if (isCustomDomain) {
-    // For custom domains, use the domain name as the store ID
-    const storeId = hostname.split('.')[0]; // Gets 'bakery' from 'bakery.com'
+    // For custom domains, determine the store ID based on your strategy
+    let storeId: string;
+    
+    // Strategy 1: Use the full domain name without TLD as store ID
+    // e.g., 'bakery.com' -> 'bakery', 'johnsshop.net' -> 'johnsshop'
+    const domainParts = hostname.split('.');
+    if (domainParts.length >= 2) {
+      storeId = domainParts[0]; // Gets 'bakery' from 'bakery.com'
+    } else {
+      storeId = hostname; // Fallback to full hostname
+    }
+    
+    // Strategy 2: Alternative - use a mapping or the full domain
+    // You could also maintain a mapping of domains to store IDs
+    // or use the full domain as the store ID if that's your setup
     
     if (path === '/') {
-      console.log('✅ Custom domain rewrite:', storeId);
+      console.log('✅ Custom domain rewrite:', `${hostname} -> store/${storeId}`);
       url.pathname = `/store/${storeId}`;
       return NextResponse.rewrite(url);
     }
     
     // Handle other routes under custom domain
     if (!path.startsWith('/store/')) {
-      console.log('✅ Custom domain route rewrite:', `${storeId}${path}`);
+      console.log('✅ Custom domain route rewrite:', `${hostname}${path} -> store/${storeId}${path}`);
       url.pathname = `/store/${storeId}${path}`;
       return NextResponse.rewrite(url);
     }
@@ -57,36 +70,8 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
   
-  // Extract subdomain for your main app domain
-  const parts = hostname.split('.');
-  
-  // Skip if www or main domain (no subdomain)
-  if (parts[0] === 'www' || parts.length < 3) {
-    return NextResponse.next();
-  }
-  
-  const subdomain = parts[0];
-  
-  // Reserved subdomains
-  const reserved = ['api', 'admin', 'www', 'mail', 'blog', 'help', 'support'];
-  if (reserved.includes(subdomain)) {
-    return NextResponse.next();
-  }
-  
-  // Rewrite subdomain to store page
-  if (path === '/') {
-    console.log('✅ Subdomain rewrite:', subdomain);
-    url.pathname = `/store/${subdomain}`;
-    return NextResponse.rewrite(url);
-  }
-  
-  // Handle other routes under subdomain
-  if (!path.startsWith('/store/')) {
-    console.log('✅ Subdomain route rewrite:', `${subdomain}${path}`);
-    url.pathname = `/store/${subdomain}${path}`;
-    return NextResponse.rewrite(url);
-  }
-  
+  // If we get here, it's likely your main development/hosting domain
+  // You can choose to either show a landing page or redirect
   return NextResponse.next();
 }
 

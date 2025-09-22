@@ -17,18 +17,20 @@ export const initializeAppCheckForWeb = () => {
       let providerKey: string;
 
       if (isDevelopment) {
-        // Enable debug token for development
-        (window as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN: boolean }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-        console.log('App Check debug mode enabled');
-        providerKey = 'placeholder-key';
-      } else {
-        // 💡 FIX 2: Check for the key and return if it's missing.
-        if (!reCaptchaKey) {
-          console.error('ReCaptcha site key is not defined. App Check will not work in production.');
-          return;
-        }
-        providerKey = reCaptchaKey;
+      // ✅ Enable debug token for development
+      (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = 'true';
+      console.log('App Check debug mode enabled');
+      providerKey = 'placeholder-key'; // Ignored in debug mode
+    } else {
+      // Ensure production key exists
+      if (!reCaptchaKey) {
+        console.error(
+          'ReCaptcha site key is not defined. App Check will not work in production.'
+        );
+        return;
       }
+      providerKey = reCaptchaKey;
+    }
       
       // Initialize App Check with the determined key
       const newAppCheck = initializeAppCheck(app, {
