@@ -3,7 +3,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ChevronRightIcon, PackageIcon, SearchIcon } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db } from '@/lib/firebase';
+import '@/lib/appcheck'; // This line initializes App Check
 
 // Define types for the data
 interface Store {
