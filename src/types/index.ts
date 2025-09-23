@@ -94,3 +94,13 @@ export interface Order {
   deliveryFee?: number;
   minimumOrder?: number;
 }
+
+export interface Extra {
+  id: string;
+  name: string;
+  price: number;
+  btwamount: number;
+  btwrate: number;
+  inkkoopprijs: number;
+  quantity: number;
+}

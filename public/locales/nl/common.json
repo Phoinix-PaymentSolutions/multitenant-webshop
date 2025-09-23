@@ -1,0 +1,18 @@
+{
+  "site_title": "Mijn Geweldige App",
+  "navigation": {
+    "home": "Home",
+    "about": "Over ons",
+    "contact": "Contact"
+  },
+  "greetings": {
+    "welcome": "Welkom op onze website!",
+    "farewell": "Bedankt voor uw bezoek."
+  },
+  "buttons": {
+    "submit": "Indienen",
+    "cancel": "Annuleren",
+    "learn_more": "Meer leren"
+  },
+  "language_selector": "Taal"
+}

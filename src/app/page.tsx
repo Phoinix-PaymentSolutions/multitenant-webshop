@@ -5,6 +5,8 @@ import { ChevronRightIcon, PackageIcon, SearchIcon } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import '@/lib/appcheck'; // This line initializes App Check
+import { useTranslation } from 'react-i18next';
+import { serverSideTranslations } from 'next-i18next/serverSideTranslations';
 
 // Define types for the data
 interface Store {

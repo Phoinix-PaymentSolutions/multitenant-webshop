@@ -1,0 +1,18 @@
+{
+  "site_title": "Ma Superbe Application",
+  "navigation": {
+    "home": "Accueil",
+    "about": "À propos de nous",
+    "contact": "Contact"
+  },
+  "greetings": {
+    "welcome": "Bienvenue sur notre site web!",
+    "farewell": "Merci de votre visite."
+  },
+  "buttons": {
+    "submit": "Soumettre",
+    "cancel": "Annuler",
+    "learn_more": "En savoir plus"
+  },
+  "language_selector": "Langue"
+}

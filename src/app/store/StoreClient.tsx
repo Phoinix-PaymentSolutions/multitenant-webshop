@@ -1,6 +1,6 @@
 'use client';
 
-import { getStore, getStoreProducts } from '@/lib/database';
+import { getProductExtras, getStore, getStoreProducts } from '@/lib/database';
 import '@/lib/appcheck'
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -19,7 +19,7 @@ import {
   PackageIcon,
   HeartHandshakeIcon,
 } from 'lucide-react';
-import type { Store, Product, CartItem as ImportedCartItem } from '@/types';
+import type { Store, Product, Extra, CartItem as ImportedCartItem } from '@/types';
 import Image from 'next/image';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, } from '@/lib/firebase';
@@ -362,43 +362,126 @@ interface StorePageProps {
 
 interface ProductCardProps {
   product: UpdatedProduct;
-  onAddToCart: (product: UpdatedProduct) => void;
+  onAddToCart: (product: UpdatedProduct, extras: Extra[]) => void;
   brandColor?: string;
 }
 
-const ProductCard = ({ product, onAddToCart, brandColor }: ProductCardProps) => (
-  <div className="group relative bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden transform transition-all hover:scale-[1.02]">
-    <div className="relative w-full h-48 sm:h-64 bg-gray-100">
-      <Image
-        src={product.imageUrl || 'https://placehold.co/400x400/E5E7EB/9CA3AF?text=Product'}
-        alt={product.name}
-        width={400}
-        height={400}
-        className="w-full h-full object-cover transition-opacity duration-300"
-      />
-      {product.onSale && (
-        <Badge className="absolute top-3 left-3 bg-red-500 text-white">Sale</Badge>
+const ProductCard = ({ product, onAddToCart, brandColor }: ProductCardProps) => {
+  const [expanded, setExpanded] = useState(false);
+  const [extras, setExtras] = useState<Extra[]>([]);
+  const [selectedExtras, setSelectedExtras] = useState<Record<string, boolean>>({});
+
+  // Fetch extras when the card is expanded
+  useEffect(() => {
+    if (expanded) {
+      const fetchExtras = async () => {
+        const fetchedExtras = await getProductExtras(product.id);
+        setExtras(fetchedExtras);
+      };
+      fetchExtras();
+    } else {
+      setExtras([]);
+      setSelectedExtras({});
+    }
+  }, [expanded, product.id]);
+
+  const handleExpandToggle = () => {
+    setExpanded(!expanded);
+  };
+
+  const handleExtraSelect = (extraId: string) => {
+    setSelectedExtras(prev => ({
+      ...prev,
+      [extraId]: !prev[extraId]
+    }));
+  };
+
+  const handleAddToCart = () => {
+    const finalExtras = extras.filter(extra => selectedExtras[extra.id]);
+    onAddToCart(product, finalExtras);
+    setExpanded(false); // Collapse after adding to cart
+  };
+
+  const calculateTotal = () => {
+    let total = product.onSale && product.salePrice ? product.salePrice : product.price;
+    extras.forEach(extra => {
+      if (selectedExtras[extra.id]) {
+        total += extra.price;
+      }
+    });
+    return total;
+  };
+
+  const finalPrice = calculateTotal();
+
+  return (
+    <div className="group relative bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden transform transition-all hover:scale-[1.02]">
+      <div className="relative w-full h-48 sm:h-64 bg-gray-100">
+        <Image
+          src={product.imageUrl || 'https://placehold.co/400x400/E5E7EB/9CA3AF?text=Product'}
+          alt={product.name}
+          width={400}
+          height={400}
+          className="w-full h-full object-cover transition-opacity duration-300"
+        />
+        {product.onSale && (
+          <Badge className="absolute top-3 left-3 bg-red-500 text-white">Sale</Badge>
+        )}
+      </div>
+      <div className="p-4 flex flex-col justify-between">
+        <h3 className="text-xl font-bold text-gray-900 truncate">{product.name}</h3>
+        <p className="mt-1 text-sm text-gray-500 line-clamp-2">{product.description}</p>
+        <div className="flex items-center justify-between mt-3">
+          {product.onSale ? (
+            <div className="flex items-center">
+              <span className="text-xl font-bold text-red-600">€{(product.salePrice || product.price || 0).toFixed(2)}</span>
+              <span className="text-sm text-gray-500 line-through ml-2">€{(product.price || 0).toFixed(2)}</span>
+            </div>
+          ) : (
+            <span className="text-xl font-bold text-gray-900">€{(product.price || 0).toFixed(2)}</span>
+          )}
+          <Button onClick={handleExpandToggle} brandColor={brandColor} size="sm">
+            <PlusIcon className="h-5 w-5" />
+          </Button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="bg-gray-50 p-4 border-t border-gray-200 animate-slide-down">
+          <h4 className="font-bold text-lg mb-2">Add-ons</h4>
+          {extras.length > 0 ? (
+            <ul className="space-y-2">
+              {extras.map(extra => (
+                <li key={extra.id} className="flex items-center justify-between">
+                  <label className="flex items-center cursor-pointer text-gray-700">
+                    <input
+                      type="checkbox"
+                      className="form-checkbox h-4 w-4 text-gray-600 rounded-sm"
+                      checked={!!selectedExtras[extra.id]}
+                      onChange={() => handleExtraSelect(extra.id)}
+                    />
+                    <span className="ml-2">{extra.name}</span>
+                  </label>
+                  <span className="text-sm font-medium text-gray-900">€{extra.price.toFixed(2)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-500">No add-ons available.</p>
+          )}
+          <div className="mt-4 pt-4 border-t border-dashed border-gray-300 flex justify-between items-center">
+            <span className="font-bold text-lg text-gray-800">Total:</span>
+            <span className="text-2xl font-bold text-gray-900">€{finalPrice.toFixed(2)}</span>
+          </div>
+          <Button onClick={handleAddToCart} brandColor={brandColor} className="mt-4 w-full">
+            Add to Cart
+          </Button>
+        </div>
       )}
     </div>
-    <div className="p-4 flex flex-col justify-between">
-      <h3 className="text-xl font-bold text-gray-900 truncate">{product.name}</h3>
-      <p className="mt-1 text-sm text-gray-500 line-clamp-2">{product.description}</p>
-      <div className="flex items-center justify-between mt-3">
-        {product.onSale ? (
-  <div className="flex items-center">
-    <span className="text-xl font-bold text-red-600">€{(product.salePrice || product.price || 0).toFixed(2)}</span>
-    <span className="text-sm text-gray-500 line-through ml-2">€{(product.price || 0).toFixed(2)}</span>
-  </div>
-) : (
-  <span className="text-xl font-bold text-gray-900">€{(product.price || 0).toFixed(2)}</span>
-)}
-        <Button onClick={() => onAddToCart(product)} brandColor={brandColor} size="sm">
-          <PlusIcon className="h-5 w-5" />
-        </Button>
-      </div>
-    </div>
-  </div>
-);
+  );
+};
+
 
 interface OnSaleCardProps {
   onSaleProducts: UpdatedProduct[];

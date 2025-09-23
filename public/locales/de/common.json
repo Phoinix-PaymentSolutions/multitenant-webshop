@@ -1,0 +1,18 @@
+{
+  "site_title": "Meine Tolle App",
+  "navigation": {
+    "home": "Startseite",
+    "about": "Über uns",
+    "contact": "Kontakt"
+  },
+  "greetings": {
+    "welcome": "Willkommen auf unserer Website!",
+    "farewell": "Vielen Dank für Ihren Besuch."
+  },
+  "buttons": {
+    "submit": "Senden",
+    "cancel": "Abbrechen",
+    "learn_more": "Mehr erfahren"
+  },
+  "language_selector": "Sprache"
+}

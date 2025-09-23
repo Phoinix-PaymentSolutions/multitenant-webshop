@@ -1,0 +1,18 @@
+{
+  "site_title": "My Awesome App",
+  "navigation": {
+    "home": "Home",
+    "about": "About Us",
+    "contact": "Contact"
+  },
+  "greetings": {
+    "welcome": "Welcome to our website!",
+    "farewell": "Thank you for visiting."
+  },
+  "buttons": {
+    "submit": "Submit",
+    "cancel": "Cancel",
+    "learn_more": "Learn more"
+  },
+  "language_selector": "Language"
+}
