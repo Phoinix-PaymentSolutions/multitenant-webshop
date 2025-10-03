@@ -1,12 +1,13 @@
 import { StoreClient } from 'src/app/store/StoreClient';
 
 interface StorePageProps {
-  params: {
-    storeId: string;
-  };
+  params: Promise<{ storeId: string }>; // Changed: params is now a Promise
 }
 
-export default function StorePage({ params }: StorePageProps) {
-  console.log('Page received params:', params);
-  return <StoreClient storeId={params.storeId} />;
+export default async function StorePage({ params }: StorePageProps) {
+  // Changed: Await the params before using them
+  const { storeId } = await params;
+  
+  console.log('Page received params:', { storeId });
+  return <StoreClient storeId={storeId} />;
 }

@@ -1,8 +1,9 @@
 'use client';
 
-import { getStore, getStoreProducts } from '@/lib/database';
+import { getProductExtras, getStore, getStoreProducts, } from '@/lib/database';
 import '@/lib/appcheck'
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { checkDeliveryAvailability, isValidDutchPostalCode, cleanPostalCode } from '@/lib/deliveryZones';
 import {
   ShoppingCartIcon,
   PlusIcon,
@@ -19,11 +20,11 @@ import {
   PackageIcon,
   HeartHandshakeIcon,
 } from 'lucide-react';
-import type { Store, Product, CartItem as ImportedCartItem } from '@/types';
+import type { Store, Product, Extra, CartItem as ImportedCartItem, DayHours, OperatingHours } from '@/types';
 import Image from 'next/image';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app, } from '@/lib/firebase';
-
+import { app, db } from '@/lib/firebase';
+import { addDoc, collection, serverTimestamp, } from 'firebase/firestore';
 
 
 // Utility function for debouncing
@@ -111,19 +112,15 @@ interface CheckoutPageProps {
   clearCart: () => void;
 }
 
-interface UpdatedCartItem {
-  id: string;
-  name: string;
-  quantity: number;
-  price: number;
-  totalPrice: number;
-}
 
 interface UpdatedStore {
   id: string;
   name: string;
   ownerId: string;
   brandColor?: string;
+  address?: string;
+  postalCode?: string;
+  city?: string;
 }
 
 interface UpdatedProduct {
@@ -134,6 +131,24 @@ interface UpdatedProduct {
   imageUrl?: string | null; // This is the old line
   // Change it to this:
   category: string;
+}
+
+interface MolliePaymentResponse {
+  payment: {
+    id: string;
+    status: string;
+    amount: {
+      currency: string;
+      value: string;
+    };
+    description: string;
+    metadata: Record<string, any>;
+    _links: {
+      checkout: {
+        href: string;
+      };
+    };
+  };
 }
 
 const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, clearCart }: CheckoutPageProps) => {
@@ -148,96 +163,225 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
     houseNumber: '',
   });
 
+  // New state for delivery validation
+  const [deliveryOption, setDeliveryOption] = useState<'delivery' | 'takeaway'>('delivery');
+  const [deliveryAvailable, setDeliveryAvailable] = useState<boolean | null>(null);
+  const [deliveryInfo, setDeliveryInfo] = useState<{
+    deliveryFee: number;
+    minimumOrder: number;
+    estimatedTime: string;
+    freeDeliveryThreshold?: number;
+  } | null>(null);
+  const [isCheckingDelivery, setIsCheckingDelivery] = useState(false);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-  };
 
-const handleFormSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-
-    // Build the payload for your Firebase function
-    const paymentData = {
-      userId: store.ownerId,
-      amount: (cartTotal + finalDeliveryFee).toFixed(2),
-      currency: 'EUR',
-      description: `Order from ${store.name} - ${cart.length} items`,
-      method: 'ideal', // could be dynamic later
-      customerInfo: {
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        email: formData.email,
-        phone: formData.phoneNumber,
-        address: formData.address,
-        postalCode: formData.postalCode,
-        houseNumber: formData.houseNumber,
-      },
-      metadata: {
-        orderId: `order_${Date.now()}`,
-        storeId: store.id,
-        storeName: store.name,
-        items: cart.map(item => ({
-          id: item.id,
-          name: item.name,
-          quantity: item.quantity,
-          price: item.price,
-        })),
-        deliveryAddress: `${formData.address}, ${formData.postalCode}`,
-        customerNotes: formData.notes,
-        orderTotal: cartTotal,
-        deliveryFee: finalDeliveryFee,
-        totalAmount: cartTotal + finalDeliveryFee,
-      },
-      domain: window.location.hostname,
-      redirectUrl: `${window.location.origin}/order-success`,
-      webhookUrl: `${window.location.origin}/api/webhook/mollie`,
-    };
-interface MolliePaymentPayload {
-  payment: {
-    id: string;
-    status: string;
-    amount: {
-      currency: string;
-      value: string;
-    };
-    description: string;
-    metadata: {
-      orderId: string;
-      storeId: string;
-      storeName: string;
-    };
-    _links: {
-      checkout: {
-        href: string;
-      };
-    };
-  };
-}
-
-    try {
-      const functions = getFunctions(app); // use your initialized Firebase app if needed
-      const createMollieOnlinePayment = httpsCallable<typeof paymentData, MolliePaymentPayload>(functions, "createMollieOnlinePayment");
-
-      const result = await createMollieOnlinePayment(paymentData);
-      console.log("Payment created:", result);
-
-      // Redirect user to Mollie checkout
-      const checkoutUrl = result.data?.payment?._links?.checkout?.href;
-      if (checkoutUrl) {
-        window.location.href = checkoutUrl;
-        return;
-      }
-
-      // Fallback: clear cart and go back
-      clearCart();
-      onBackToCart();
-    } catch (error) {
-      console.error("Error during checkout:", error);
-      // You could show a UI error message here
+    // Check delivery when postal code changes
+    if (name === 'postalCode') {
+      checkDeliveryForPostalCode(value);
     }
   };
 
+  const checkDeliveryForPostalCode = async (postalCode: string) => {
+    const cleanedCode = cleanPostalCode(postalCode);
+    
+    if (!cleanedCode || cleanedCode.length < 6) {
+      setDeliveryAvailable(null);
+      setDeliveryInfo(null);
+      setDeliveryError(null);
+      return;
+    }
 
+    if (!isValidDutchPostalCode(cleanedCode)) {
+      setDeliveryAvailable(false);
+      setDeliveryError('Please enter a valid Dutch postal code (e.g., 1234AB)');
+      return;
+    }
+
+    setIsCheckingDelivery(true);
+    setDeliveryError(null);
+
+    try {
+      const result = await checkDeliveryAvailability(store.id, cleanedCode);
+      
+      if (result.available) {
+        setDeliveryAvailable(true);
+        setDeliveryInfo({
+          deliveryFee: result.deliveryFee || 0,
+          minimumOrder: result.minimumOrder || 0,
+          estimatedTime: result.estimatedTime || '30-45 min',
+          freeDeliveryThreshold: result.freeDeliveryThreshold
+        });
+      } else {
+        setDeliveryAvailable(false);
+        setDeliveryError('Delivery not available to this postal code. Takeaway is still available!'); 
+      }
+    } catch (error) {
+      console.error('Error checking delivery:', error);
+      setDeliveryError('Error checking delivery availability. Please try again.');
+      setDeliveryAvailable(false);
+    } finally {
+      setIsCheckingDelivery(false);
+    }
+  };
+
+  const calculateDeliveryFee = () => {
+    if (deliveryOption === 'takeaway') return 0;
+    if (!deliveryInfo) return 0;
+    
+    // Check for free delivery threshold
+    if (deliveryInfo.freeDeliveryThreshold && cartTotal >= deliveryInfo.freeDeliveryThreshold) {
+      return 0;
+    }
+    
+    return deliveryInfo.deliveryFee;
+  };
+
+  const currentDeliveryFee = calculateDeliveryFee();
+
+  const handleFormSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (deliveryOption === 'delivery' && deliveryAvailable !== true) {
+    setDeliveryError('Please select takeaway or enter a valid delivery postal code');
+    return;
+  }
+
+
+     if (deliveryOption === 'delivery' && deliveryInfo && cartTotal < deliveryInfo.minimumOrder) {
+    setDeliveryError(`Minimum order for delivery is €${deliveryInfo.minimumOrder.toFixed(2)}`);
+    return;
+  }
+
+  const totalAmount = cartTotal + currentDeliveryFee;
+
+ try {
+  // STEP 1: PREPARE DATA AND CALL THE BACKEND TO CREATE THE ORDER
+    const orderPayload = {
+      // Basic order info
+      storeId: store.id,
+      
+      // Customer information
+  customer: {
+    email: formData.email,
+    name: `${formData.firstName} ${formData.lastName}`,
+    phone: formData.phoneNumber,
+    billingAddress: deliveryOption === 'delivery'
+      ? `${formData.address} ${formData.houseNumber}, ${cleanPostalCode(formData.postalCode)}`
+      : null,
+    shippingAddress: deliveryOption === 'delivery'
+      ? `${formData.address} ${formData.houseNumber}, ${cleanPostalCode(formData.postalCode)}`
+      : null,
+  },
+      // Order items
+      items: cart.map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price.toFixed(2),
+        quantity: item.quantity,
+        imageUrl: item.imageUrl || null,
+        subtotal: (item.price * item.quantity).toFixed(2),
+        // Store extras info for reference
+        extras: item.extras || []
+      })),
+      // Financial details
+      subtotal: cartTotal.toFixed(2),
+      tax: "0.00",
+      discount: "0.00",
+      shippingCost: currentDeliveryFee.toFixed(2),
+      total: totalAmount.toFixed(2),
+      currency: 'EUR',
+      // Order status
+      orderStatus: 'pending',
+      paymentStatus: 'pending',
+      
+      // Addresses (if delivery)
+      billingAddress: deliveryOption === 'delivery' ? 
+        `${formData.address} ${formData.houseNumber}, ${cleanPostalCode(formData.postalCode)}` : null,
+      shippingAddress: deliveryOption === 'delivery' ? 
+        `${formData.address} ${formData.houseNumber}, ${cleanPostalCode(formData.postalCode)}` : null,
+      
+      // Additional metadata
+      metadata: {
+        source: 'online_store',
+        orderType: deliveryOption,
+        customerNotes: formData.notes || null,
+        ...(deliveryOption === 'delivery' && deliveryInfo && {
+          estimatedDeliveryTime: deliveryInfo.estimatedTime
+        })
+      },
+      
+      // Timestamps
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    const createOrderUrl= 'https://createorder-5zsbq77b5q-uc.a.run.app'; // Your Cloud Function URL
+
+    const orderResponse = await fetch(createOrderUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(orderPayload),
+    });
+
+    if (!orderResponse.ok) {
+      const errorData = await orderResponse.json();
+      console.error("Order creation error:", errorData);
+      setDeliveryError(errorData.message || 'Failed to create order');
+      return;
+    }
+
+    const {orderId, total} = await orderResponse.json();
+    console.log(`Order created with ID via backend: With a total of €`, total, orderId);
+
+  // STEP 2: CREATE PAYMENT WITH REAL ORDER ID
+    const functions = getFunctions(app);
+    const createMollieOnlinePayment = httpsCallable<any, MolliePaymentResponse>(functions,
+      "createMollieOnlinePayment"
+    );
+
+    const paymentData = {
+      amount: { value: total, currency: 'EUR' }, // Correct Mollie format
+      method: 'ideal',
+      applicationFee: { amount: {
+         value: '0.10', currency: 'EUR' },
+        description: "standard App Fee"},
+      description: `${deliveryOption === 'delivery' ? 'Delivery' : 'Takeaway'} order from ${store.name}`,
+      redirectUrl: `${window.location.origin}/order-success?orderId=${orderId}`,
+      webhookUrl: `https://molliewebhook-5zsbq77b5q-uc.a.run.app`, // Your webhook URL
+      metadata: {
+        storeId: store.id,
+        orderId: orderId.toString() // REAL ORDER ID FROM FIRESTORE!
+      }
+    };
+
+    console.log('Payment data being sent:', JSON.stringify(paymentData, null, 2));
+    console.log('OrderId value:', orderId);
+    console.log('Metadata:', paymentData.metadata);
+
+    const  result = await createMollieOnlinePayment(paymentData);
+    
+    const checkoutUrl = result.data?.payment._links.checkout.href;
+    if (checkoutUrl) {
+      // Clear cart and redirect
+      clearCart();
+      window.location.href = checkoutUrl;
+    } else {
+      throw new Error('No checkout URL received from payment service');
+    }
+
+  } catch (error) {
+    console.error("Error during checkout:", error);
+    if (error instanceof Error) {
+      setDeliveryError(error.message || 'Checkout failed. Please try again.');
+    }
+  }
+};
   return (
     <div className="max-w-3xl mx-auto p-6 sm:p-8 md:p-12">
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 sm:p-8 md:p-10 mb-8">
@@ -249,100 +393,259 @@ interface MolliePaymentPayload {
         </div>
         
         <form onSubmit={handleFormSubmit} className="space-y-6">
+          {/* Delivery Option Selection */}
+          <div>
+            <h3 className="text-xl font-semibold mb-3">Order Type</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-colors ${
+                deliveryOption === 'delivery' 
+                  ? 'border-blue-500 bg-blue-50' 
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}>
+                <input
+                  type="radio"
+                  name="deliveryOption"
+                  value="delivery"
+                  checked={deliveryOption === 'delivery'}
+                  onChange={(e) => setDeliveryOption(e.target.value as 'delivery' | 'takeaway')}
+                  className="mr-3"
+                />
+                <div>
+                  <div className="font-medium">Delivery</div>
+                  <div className="text-sm text-gray-500">
+                    {deliveryInfo ? (
+                      <>
+                        {currentDeliveryFee === 0 ? 'Free' : `€${currentDeliveryFee.toFixed(2)}`} - {deliveryInfo.estimatedTime}
+                        {deliveryInfo.freeDeliveryThreshold && cartTotal < deliveryInfo.freeDeliveryThreshold && (
+                          <div className="text-xs text-green-600 mt-1">
+                            Free delivery over €{deliveryInfo.freeDeliveryThreshold.toFixed(2)}
+                          </div>
+                        )}
+                      </>
+                    ) : 'Enter postal code to check'}
+                  </div>
+                </div>
+              </label>
+              
+              <label className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-colors ${
+                deliveryOption === 'takeaway' 
+                  ? 'border-blue-500 bg-blue-50' 
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}>
+                <input
+                  type="radio"
+                  name="deliveryOption"
+                  value="takeaway"
+                  checked={deliveryOption === 'takeaway'}
+                  onChange={(e) => setDeliveryOption(e.target.value as 'delivery' | 'takeaway')}
+                  className="mr-3"
+                />
+                <div>
+                  <div className="font-medium">Takeaway</div>
+                  <div className="text-sm text-gray-500">Pick up at store - Free</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
           {/* Contact Information */}
           <div>
             <h3 className="text-xl font-semibold mb-3">Contact Information</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">First Name</label>
-                <input type="text" id="firstName" name="firstName" value={formData.firstName} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" />
+                <input 
+                  type="text" 
+                  id="firstName" 
+                  name="firstName" 
+                  value={formData.firstName} 
+                  onChange={handleChange} 
+                  required 
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" 
+                />
               </div>
               <div>
                 <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">Last Name</label>
-                <input type="text" id="lastName" name="lastName" value={formData.lastName} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" />
+                <input 
+                  type="text" 
+                  id="lastName" 
+                  name="lastName" 
+                  value={formData.lastName} 
+                  onChange={handleChange} 
+                  required 
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" 
+                />
               </div>
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email</label>
-                <input type="email" id="email" name="email" value={formData.email} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" />
+                <input 
+                  type="email" 
+                  id="email" 
+                  name="email" 
+                  value={formData.email} 
+                  onChange={handleChange} 
+                  required 
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" 
+                />
               </div>
               <div>
                 <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700">Phone Number</label>
-                <input type="tel" id="phoneNumber" name="phoneNumber" value={formData.phoneNumber} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" />
+                <input 
+                  type="tel" 
+                  id="phoneNumber" 
+                  name="phoneNumber" 
+                  value={formData.phoneNumber} 
+                  onChange={handleChange} 
+                  required 
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" 
+                />
               </div>
             </div>
           </div>
 
-{/* Delivery Information */}
-<div>
-  <h3 className="text-xl font-semibold mb-3">Delivery Information</h3>
-  
-  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-    {/* Street Address full width */}
-    <div className="sm:col-span-2">
-      <label htmlFor="address" className="block text-sm font-medium text-gray-700">Street Address</label>
-      <input
-        type="text"
-        id="address"
-        name="address"
-        value={formData.address}
-        onChange={handleChange}
-        required
-        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-      />
-    </div>
+          {/* Delivery Information - Only show if delivery is selected */}
+          {deliveryOption === 'delivery' && (
+            <div>
+              <h3 className="text-xl font-semibold mb-3">Delivery Information</h3>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label htmlFor="address" className="block text-sm font-medium text-gray-700">Street Address</label>
+                  <input
+                    type="text"
+                    id="address"
+                    name="address"
+                    value={formData.address}
+                    onChange={handleChange}
+                    required={deliveryOption === 'delivery'}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
 
-    {/* House Number */}
-    <div>
-      <label htmlFor="houseNumber" className="block text-sm font-medium text-gray-700">House Number</label>
-      <input
-        type="text"
-        id="houseNumber"
-        name="houseNumber"
-        value={formData.houseNumber}
-        onChange={handleChange}
-        required
-        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-      />
-    </div>
+                <div>
+                  <label htmlFor="houseNumber" className="block text-sm font-medium text-gray-700">House Number</label>
+                  <input
+                    type="text"
+                    id="houseNumber"
+                    name="houseNumber"
+                    value={formData.houseNumber}
+                    onChange={handleChange}
+                    required={deliveryOption === 'delivery'}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
 
-    {/* Postal Code */}
-    <div>
-      <label htmlFor="postalCode" className="block text-sm font-medium text-gray-700">Postal Code</label>
-      <input
-        type="text"
-        id="postalCode"
-        name="postalCode"
-        value={formData.postalCode}
-        onChange={handleChange}
-        required
-        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-      />
-    </div>
-  </div>
-</div>
-          
+                <div>
+                  <label htmlFor="postalCode" className="block text-sm font-medium text-gray-700">
+                    Postal Code
+                    {isCheckingDelivery && <span className="ml-2 text-blue-500">Checking...</span>}
+                  </label>
+                  <input
+                    type="text"
+                    id="postalCode"
+                    name="postalCode"
+                    value={formData.postalCode}
+                    onChange={handleChange}
+                    required={deliveryOption === 'delivery'}
+                    placeholder="1234AB"
+                    className={`mt-1 block w-full rounded-md shadow-sm focus:ring-blue-500 ${
+                      deliveryAvailable === false 
+                        ? 'border-red-300 focus:border-red-500' 
+                        : deliveryAvailable === true 
+                          ? 'border-green-300 focus:border-green-500'
+                          : 'border-gray-300 focus:border-blue-500'
+                    }`}
+                  />
+                  {deliveryError && (
+                    <p className="mt-1 text-sm text-red-600">{deliveryError}</p>
+                  )}
+                  {deliveryAvailable === true && deliveryInfo && (
+                    <div className="mt-1 text-sm text-green-600">
+                      <p>Delivery available!</p>
+                      <p>Time: {deliveryInfo.estimatedTime}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Additional Notes */}
           <div>
             <h3 className="text-xl font-semibold mb-3">Notes</h3>
             <div>
-              <label htmlFor="notes" className="block text-sm font-medium text-gray-700">Delivery Notes (optional)</label>
-              <textarea id="notes" name="notes" rows={3} value={formData.notes} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"></textarea>
+              <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
+                {deliveryOption === 'delivery' ? 'Delivery' : 'Pickup'} Notes (optional)
+              </label>
+              <textarea 
+                id="notes" 
+                name="notes" 
+                rows={3} 
+                value={formData.notes} 
+                onChange={handleChange} 
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              />
             </div>
           </div>
 
           {/* Total Summary */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="flex justify-between text-lg font-semibold">
-              <span>Total:</span>
-              <span>€{(cartTotal + finalDeliveryFee).toFixed(2)}</span>
-            </div>
-          </div>
+       <div className="bg-gray-50 rounded-lg p-4">
+  <div className="space-y-2">
+    <div className="flex justify-between">
+      <span>Subtotal:</span>
+      <span>€{cartTotal.toFixed(2)}</span>
+    </div>
+
+    {/* NEW CODE: Display Pickup Address in Summary */}
+    {deliveryOption === 'takeaway' && store && (
+      <div className="flex flex-col text-sm text-gray-700 pt-1 border-t border-dashed mt-1">
+        <span className="font-semibold">Pickup Location:</span>
+        <span className="text-sm">{store.address}</span>
+        <span className="text-sm">{store.postalCode} {store.city}</span>
+      </div>
+    )}
+    {/* END NEW CODE */}
+
+    <div className="flex justify-between">
+      <span>{deliveryOption === 'delivery' ? 'Delivery Fee:' : 'Pickup:'}</span>
+      <span>
+        {deliveryOption === 'takeaway' 
+          ? 'Free' 
+          : currentDeliveryFee === 0
+            ? 'Free'
+            : `€${currentDeliveryFee.toFixed(2)}`
+        }
+      </span>
+    </div>
+    {deliveryOption === 'delivery' && deliveryInfo?.freeDeliveryThreshold && cartTotal < deliveryInfo.freeDeliveryThreshold && currentDeliveryFee > 0 && (
+      <div className="text-sm text-amber-600 bg-amber-50 p-2 rounded">
+        Add €{(deliveryInfo.freeDeliveryThreshold - cartTotal).toFixed(2)} more for free delivery!
+      </div>
+    )}
+    <hr />
+    <div className="flex justify-between text-lg font-semibold">
+      <span>Total:</span>
+      <span>€{(cartTotal + currentDeliveryFee).toFixed(2)}</span>
+    </div>
+  </div>
+</div>
 
           {/* Submit Button */}
-          <Button type="submit" brandColor={store.brandColor} size="lg" className="w-full">
-            Place Order
-          </Button>
+          <Button 
+  type="submit" 
+  brandColor={store.brandColor} 
+  size="lg" 
+  className="w-full"
+  disabled={!!(
+    (deliveryOption === 'delivery' && deliveryAvailable !== true) ||
+    (deliveryOption === 'delivery' && deliveryInfo && cartTotal < deliveryInfo.minimumOrder)
+  )}
+>
+  {deliveryOption === 'delivery' && deliveryInfo && cartTotal < deliveryInfo.minimumOrder
+    ? `Minimum order €${deliveryInfo.minimumOrder.toFixed(2)} for delivery`
+    : `Place ${deliveryOption === 'delivery' ? 'Delivery' : 'Takeaway'} Order`
+  }
+</Button>
         </form>
       </div>
     </div>
@@ -362,43 +665,126 @@ interface StorePageProps {
 
 interface ProductCardProps {
   product: UpdatedProduct;
-  onAddToCart: (product: UpdatedProduct) => void;
+  onAddToCart: (product: UpdatedProduct, extras: Extra[]) => void;
   brandColor?: string;
 }
 
-const ProductCard = ({ product, onAddToCart, brandColor }: ProductCardProps) => (
-  <div className="group relative bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden transform transition-all hover:scale-[1.02]">
-    <div className="relative w-full h-48 sm:h-64 bg-gray-100">
-      <Image
-        src={product.imageUrl || 'https://placehold.co/400x400/E5E7EB/9CA3AF?text=Product'}
-        alt={product.name}
-        width={400}
-        height={400}
-        className="w-full h-full object-cover transition-opacity duration-300"
-      />
-      {product.onSale && (
-        <Badge className="absolute top-3 left-3 bg-red-500 text-white">Sale</Badge>
+const ProductCard = ({ product, onAddToCart, brandColor }: ProductCardProps) => {
+  const [expanded, setExpanded] = useState(false);
+  const [extras, setExtras] = useState<Extra[]>([]);
+  const [selectedExtras, setSelectedExtras] = useState<Record<string, boolean>>({});
+
+  // Fetch extras when the card is expanded
+  useEffect(() => {
+    if (expanded) {
+      const fetchExtras = async () => {
+        const fetchedExtras = await getProductExtras(product.id);
+        setExtras(fetchedExtras);
+      };
+      fetchExtras();
+    } else {
+      setExtras([]);
+      setSelectedExtras({});
+    }
+  }, [expanded, product.id]);
+
+  const handleExpandToggle = () => {
+    setExpanded(!expanded);
+  };
+
+  const handleExtraSelect = (extraId: string) => {
+    setSelectedExtras(prev => ({
+      ...prev,
+      [extraId]: !prev[extraId]
+    }));
+  };
+
+  const handleAddToCart = () => {
+    const finalExtras = extras.filter(extra => selectedExtras[extra.id]);
+    onAddToCart(product, finalExtras);
+    setExpanded(false); // Collapse after adding to cart
+  };
+
+  const calculateTotal = () => {
+    let total = product.onSale && product.salePrice ? product.salePrice : product.price;
+    extras.forEach(extra => {
+      if (selectedExtras[extra.id]) {
+        total += extra.price;
+      }
+    });
+    return total;
+  };
+
+  const finalPrice = calculateTotal();
+
+  return (
+    <div className="group relative bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden transform transition-all hover:scale-[1.02]">
+      <div className="relative w-full h-48 sm:h-64 bg-gray-100">
+        <Image
+          src={product.imageUrl || 'https://placehold.co/400x400/E5E7EB/9CA3AF?text=Product'}
+          alt={product.name}
+          width={400}
+          height={400}
+          className="w-full h-full object-cover transition-opacity duration-300"
+        />
+        {product.onSale && (
+          <Badge className="absolute top-3 left-3 bg-red-500 text-white">Sale</Badge>
+        )}
+      </div>
+      <div className="p-4 flex flex-col justify-between">
+        <h3 className="text-xl font-bold text-gray-900 truncate">{product.name}</h3>
+        <p className="mt-1 text-sm text-gray-500 line-clamp-2">{product.description}</p>
+        <div className="flex items-center justify-between mt-3">
+          {product.onSale ? (
+            <div className="flex items-center">
+              <span className="text-xl font-bold text-red-600">€{(product.salePrice || product.price || 0).toFixed(2)}</span>
+              <span className="text-sm text-gray-500 line-through ml-2">€{(product.price || 0).toFixed(2)}</span>
+            </div>
+          ) : (
+            <span className="text-xl font-bold text-gray-900">€{(product.price || 0).toFixed(2)}</span>
+          )}
+          <Button onClick={handleExpandToggle} brandColor={brandColor} size="sm">
+            <PlusIcon className="h-5 w-5" />
+          </Button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="bg-gray-50 p-4 border-t border-gray-200 animate-slide-down">
+          <h4 className="font-bold text-lg mb-2">Add-ons</h4>
+          {extras.length > 0 ? (
+            <ul className="space-y-2">
+              {extras.map(extra => (
+                <li key={extra.id} className="flex items-center justify-between">
+                  <label className="flex items-center cursor-pointer text-gray-700">
+                    <input
+                      type="checkbox"
+                      className="form-checkbox h-4 w-4 text-gray-600 rounded-sm"
+                      checked={!!selectedExtras[extra.id]}
+                      onChange={() => handleExtraSelect(extra.id)}
+                    />
+                    <span className="ml-2">{extra.name}</span>
+                  </label>
+                  <span className="text-sm font-medium text-gray-900">€{extra.price.toFixed(2)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-500">No add-ons available.</p>
+          )}
+          <div className="mt-4 pt-4 border-t border-dashed border-gray-300 flex justify-between items-center">
+            <span className="font-bold text-lg text-gray-800">Total:</span>
+            <span className="text-2xl font-bold text-gray-900">€{finalPrice.toFixed(2)}</span>
+          </div>
+          <Button onClick={handleAddToCart} brandColor={brandColor} className="mt-4 w-full">
+            Add to Cart
+          </Button>
+        </div>
       )}
     </div>
-    <div className="p-4 flex flex-col justify-between">
-      <h3 className="text-xl font-bold text-gray-900 truncate">{product.name}</h3>
-      <p className="mt-1 text-sm text-gray-500 line-clamp-2">{product.description}</p>
-      <div className="flex items-center justify-between mt-3">
-        {product.onSale ? (
-  <div className="flex items-center">
-    <span className="text-xl font-bold text-red-600">€{(product.salePrice || product.price || 0).toFixed(2)}</span>
-    <span className="text-sm text-gray-500 line-through ml-2">€{(product.price || 0).toFixed(2)}</span>
-  </div>
-) : (
-  <span className="text-xl font-bold text-gray-900">€{(product.price || 0).toFixed(2)}</span>
-)}
-        <Button onClick={() => onAddToCart(product)} brandColor={brandColor} size="sm">
-          <PlusIcon className="h-5 w-5" />
-        </Button>
-      </div>
-    </div>
-  </div>
-);
+  );
+};
+
 
 interface OnSaleCardProps {
   onSaleProducts: UpdatedProduct[];
@@ -716,6 +1102,9 @@ interface UpdatedProduct extends Product {
 // Define a new type that extends the original CartItem with totalPrice and aligns with UpdatedProduct
 interface UpdatedCartItem extends ImportedCartItem {
   totalPrice: number;
+  extras: Extra[]; // Add extras support
+  basePrice: number; // Store original product price
+  originalId?: string; // Keep track of original product ID
 }
 
 interface UpdatedStore extends Store {
@@ -725,11 +1114,114 @@ interface UpdatedStore extends Store {
   deliveryInformation?: string;
   returnPolicy?: string;
   bgImageUrl?: string; // New property for background image
+  operatingHours?: OperatingHours; // New property for operating hours
 }
 
 interface StoreClientProps {
   storeId: string;
 }
+
+// Operating Hours Component
+interface OperatingHoursDisplayProps {
+  operatingHours: OperatingHours;
+}
+
+const OperatingHoursDisplay = ({ operatingHours }: OperatingHoursDisplayProps) => {
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  
+  const formatTime = (time: string) => {
+    // Keep 24-hour format
+    return time;
+  };
+
+  const formatHours = (dayHours: DayHours | undefined) => {
+    if (!dayHours || dayHours.closed) {
+      return 'Closed';
+    }
+    if (!dayHours.open || !dayHours.close) {
+      return 'Hours not set';
+    }
+    return `${formatTime(dayHours.open)} - ${formatTime(dayHours.close)}`;
+  };
+
+  const getCurrentDay = () => {
+    const today = new Date().getDay();
+    // Convert Sunday (0) to index 6, Monday (1) to index 0, etc.
+    return today === 0 ? 6 : today - 1;
+  };
+
+  const currentDayIndex = getCurrentDay();
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
+      {/* Takeaway Hours */}
+      <div className="bg-gray-50 rounded-xl p-4">
+        <h4 className="font-bold text-lg text-gray-900 mb-4 flex items-center">
+          <PackageIcon className="h-5 w-5 mr-2" />
+          Takeaway Hours
+        </h4>
+        <div className="space-y-2">
+          {days.map((day, index) => {
+            const dayHours = operatingHours.takeaway?.[day as keyof typeof operatingHours.takeaway];
+            return (
+              <div 
+                key={`takeaway-${day}`} 
+                className={`flex justify-between items-center py-2 px-3 rounded-lg transition-colors ${
+                  index === currentDayIndex 
+                    ? 'bg-white shadow-sm border-2 border-gray-200 font-semibold' 
+                    : 'hover:bg-white hover:bg-opacity-50'
+                }`}
+              >
+                <span className="text-gray-700 font-medium">{dayLabels[index]}:</span>
+                <span className={`font-medium ${
+                  !dayHours || dayHours.closed 
+                    ? 'text-red-600' 
+                    : 'text-gray-900'
+                }`}>
+                  {formatHours(dayHours)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Delivery Hours */}
+      <div className="bg-gray-50 rounded-xl p-4">
+        <h4 className="font-bold text-lg text-gray-900 mb-4 flex items-center">
+          <ClockIcon className="h-5 w-5 mr-2" />
+          Delivery Hours
+        </h4>
+        <div className="space-y-2">
+          {days.map((day, index) => {
+            const dayHours = operatingHours.delivery?.[day as keyof typeof operatingHours.delivery];
+            return (
+              <div 
+                key={`delivery-${day}`} 
+                className={`flex justify-between items-center py-2 px-3 rounded-lg transition-colors ${
+                  index === currentDayIndex 
+                    ? 'bg-white shadow-sm border-2 border-gray-200 font-semibold' 
+                    : 'hover:bg-white hover:bg-opacity-50'
+                }`}
+              >
+                <span className="text-gray-700 font-medium">{dayLabels[index]}:</span>
+                <span className={`font-medium ${
+                  !dayHours || dayHours.closed 
+                    ? 'text-red-600' 
+                    : 'text-gray-900'
+                }`}>
+                  {formatHours(dayHours)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 
 
 export const StoreClient = ({ storeId }: StoreClientProps) => {
@@ -790,51 +1282,71 @@ const handleSearchChange = useCallback(debounce((value: string) => {
     setProducts(initialProducts);
   }, [initialProducts]);
 
-  const addToCart = useCallback((product: UpdatedProduct) => {
-    if (!product.price || product.price <= 0) {
-      console.log('Invalid product price, cannot add to cart.');
-      return; // Prevent adding products with invalid price
+const addToCart = useCallback((product: UpdatedProduct, extras: Extra[] = []) => {
+  const basePrice = product.onSale && product.salePrice ? product.salePrice : product.price;
+  const extrasPrice = extras.reduce((sum, extra) => sum + extra.price, 0);
+  const totalItemPrice = basePrice + extrasPrice;
+  
+  if (!basePrice || basePrice <= 0) {
+    console.log('Invalid product price, cannot add to cart.');
+    return;
+  }
+
+  setCart(prevCart => {
+    // Create a unique ID that includes extras to allow same product with different extras
+    const itemId = `${product.id}-${extras.map(e => e.id).sort().join('-')}`;
+    
+    const existingItem = prevCart.find(item => 
+      item.originalId === product.id && 
+      JSON.stringify(item.extras.map(e => e.id).sort()) === JSON.stringify(extras.map(e => e.id).sort())
+    );
+    
+    if (existingItem) {
+      return prevCart.map(item =>
+        item === existingItem
+          ? { 
+              ...item, 
+              quantity: item.quantity + 1, 
+              totalPrice: totalItemPrice * (item.quantity + 1) 
+            }
+          : item
+      );
+    } else {
+      const newItem: UpdatedCartItem = {
+        ...product,
+        id: itemId, // Use unique ID
+        originalId: product.id, // Keep original product ID
+        quantity: 1,
+        totalPrice: totalItemPrice,
+        extras: extras,
+        basePrice: basePrice,
+        price: totalItemPrice // Update price to include extras
+      };
+      return [...prevCart, newItem];
     }
-    setCart(prevCart => {
-      const existingItem = prevCart.find(item => item.id === product.id);
-      if (existingItem) {
-        return prevCart.map(item =>
-          item.id === product.id
-            ? { ...item, quantity: item.quantity + 1, totalPrice: item.price * (item.quantity + 1) }
-            : item
-        );
-      } else {
-        // Ensure new item created is compatible with UpdatedCartItem
-        const newItem: UpdatedCartItem = {
-          ...product,
-          quantity: 1,
-          totalPrice: product.price
-        };
-        return [...prevCart, newItem];
-      }
-    });
-  }, []);
+  });
+}, []);
 
   const clearCart = useCallback(() => {
     setCart([]);
   }, []);
 
-  const removeFromCart = useCallback((productId: string) => {
-    setCart(prevCart => prevCart.filter(item => item.id !== productId));
-  }, []);
+const removeFromCart = useCallback((itemId: string) => {
+  setCart(prevCart => prevCart.filter(item => item.id !== itemId));
+}, []);
 
-  const updateQuantity = useCallback((productId: string, newQuantity: number) => {
-    setCart(prevCart => {
-      if (newQuantity <= 0) {
-        return prevCart.filter(item => item.id !== productId);
-      }
-      return prevCart.map(item =>
-        item.id === productId
-          ? { ...item, quantity: newQuantity, totalPrice: item.price * newQuantity }
-          : item
-      );
-    });
-  }, []);
+const updateQuantity = useCallback((itemId: string, newQuantity: number) => {
+  setCart(prevCart => {
+    if (newQuantity <= 0) {
+      return prevCart.filter(item => item.id !== itemId);
+    }
+    return prevCart.map(item =>
+      item.id === itemId
+        ? { ...item, quantity: newQuantity, totalPrice: item.price * newQuantity }
+        : item
+    );
+  });
+}, []);
 
   const { cartTotal, deliveryFee, minimumOrder, isMinimumMet, finalDeliveryFee, freeDeliveryThreshold } = useMemo(() => {
     const minimumOrder = store?.minimumOrder || 0;
@@ -1007,18 +1519,69 @@ if (!store) {
         })()}
       </main>
 
+
       {/* Footer */}
-      <footer className="w-full bg-white shadow-inner mt-12 py-8">
-        <div className="container mx-auto px-4 text-center text-gray-600">
-          <div className="flex justify-center space-x-6 mb-4">
-            <a onClick={() => setCurrentPage('store')} className="cursor-pointer hover:text-gray-900">Store</a>
-            <a onClick={() => setCurrentPage('contact')} className="cursor-pointer hover:text-gray-900">Contact</a>
-            <a onClick={() => setCurrentPage('info')} className="cursor-pointer hover:text-gray-900">Info</a>
-            <a onClick={() => setCurrentPage('reviews')} className="cursor-pointer hover:text-gray-900">Reviews</a>
-          </div>
-          <p>© {new Date().getFullYear()} {store?.name}. All rights reserved.</p>
+     <footer className="w-full bg-white shadow-lg border-t border-gray-200 mt-12 py-8">
+  <div className="container mx-auto px-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+      {/* Navigation Links */}
+      <div className="bg-gray-50 rounded-xl p-6">
+        <h4 className="text-xl font-bold text-gray-900 mb-4">Quick Links</h4>
+        <div className="grid grid-cols-2 gap-4">
+          <a 
+            onClick={() => setCurrentPage('store')} 
+            className={`cursor-pointer transition-colors hover:text-gray-600 p-2 rounded-lg hover:bg-white ${
+              currentPage === 'store' ? 'text-gray-900 font-semibold bg-white shadow-sm' : 'text-gray-600'
+            }`}
+          >
+            Store
+          </a>
+          <a 
+            onClick={() => setCurrentPage('contact')} 
+            className={`cursor-pointer transition-colors hover:text-gray-600 p-2 rounded-lg hover:bg-white ${
+              currentPage === 'contact' ? 'text-gray-900 font-semibold bg-white shadow-sm' : 'text-gray-600'
+            }`}
+          >
+            Contact
+          </a>
+          <a 
+            onClick={() => setCurrentPage('info')} 
+            className={`cursor-pointer transition-colors hover:text-gray-600 p-2 rounded-lg hover:bg-white ${
+              currentPage === 'info' ? 'text-gray-900 font-semibold bg-white shadow-sm' : 'text-gray-600'
+            }`}
+          >
+            Info
+          </a>
+          <a 
+            onClick={() => setCurrentPage('reviews')} 
+            className={`cursor-pointer transition-colors hover:text-gray-600 p-2 rounded-lg hover:bg-white ${
+              currentPage === 'reviews' ? 'text-gray-900 font-semibold bg-white shadow-sm' : 'text-gray-600'
+            }`}
+          >
+            Reviews
+          </a>
         </div>
-      </footer>
+      </div>
+
+      {/* Operating Hours */}
+      <div>
+        <h4 className="text-xl font-bold text-gray-900 mb-4">Operating Hours</h4>
+        {store?.operatingHours ? (
+          <OperatingHoursDisplay operatingHours={store.operatingHours} />
+        ) : (
+          <div className="bg-gray-50 rounded-xl p-6">
+            <p className="text-gray-500 text-center">Operating hours not available</p>
+          </div>
+        )}
+      </div>
+    </div>
+    
+    {/* Copyright */}
+    <div className="text-center text-gray-600 pt-6 border-t border-gray-200">
+      <p className="font-medium">© {new Date().getFullYear()} {store?.name}. All rights reserved.</p>
+    </div>
+  </div>
+</footer>
 
       {/* Cart Sidebar */}
       {isCartOpen && (
@@ -1039,47 +1602,59 @@ if (!store) {
                 </div>
               ) : (
                 <div className="flex-grow p-6 space-y-4">
-                  {cart.map(item => (
-                    <div key={item.id} className="flex items-center space-x-4 bg-gray-50 rounded-lg p-3">
-                      <div className="relative w-16 h-16">
-                        <Image
-                          src={item.imageUrl || 'https://placehold.co/80x80/E5E7EB/9CA3AF?text=Item'}
-                          alt={item.name}
-                          width={80}
-                          height={80}
-                          className="rounded-md object-cover"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-semibold text-gray-900">{item.name}</p>
-                        <p className="text-sm text-gray-500">€{item.price.toFixed(2)}</p>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                        >
-                          <ChevronLeftIcon className="h-4 w-4" />
-                        </Button>
-                        <span>{item.quantity}</span>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                        >
-                          <ChevronRightIcon className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => removeFromCart(item.id)}
-                      >
-                        <TrashIcon className="h-5 w-5 text-red-500" />
-                      </Button>
-                    </div>
-                  ))}
+{cart.map(item => (
+  <div key={item.id} className="flex items-start space-x-4 bg-gray-50 rounded-lg p-3">
+    <div className="relative w-16 h-16">
+      <Image
+        src={item.imageUrl || 'https://placehold.co/80x80/E5E7EB/9CA3AF?text=Item'}
+        alt={item.name}
+        width={80}
+        height={80}
+        className="rounded-md object-cover"
+      />
+    </div>
+    <div className="flex-1 min-w-0">
+      <p className="font-semibold text-gray-900 truncate">{item.name}</p>
+      <p className="text-sm text-gray-500">Base: €{item.basePrice.toFixed(2)}</p>
+      {item.extras.length > 0 && (
+        <div className="text-xs text-gray-400 mt-1">
+          <p className="font-medium">Add-ons:</p>
+          {item.extras.map(extra => (
+            <p key={extra.id} className="truncate">+ {extra.name} (+€{extra.price.toFixed(2)})</p>
+          ))}
+        </div>
+      )}
+      <p className="text-sm font-medium text-gray-700 mt-1">
+        Item total: €{item.price.toFixed(2)}
+      </p>
+    </div>
+    <div className="flex items-center space-x-2">
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => updateQuantity(item.id, item.quantity - 1)}
+      >
+        <ChevronLeftIcon className="h-4 w-4" />
+      </Button>
+      <span className="text-sm font-medium">{item.quantity}</span>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => updateQuantity(item.id, item.quantity + 1)}
+      >
+        <ChevronRightIcon className="h-4 w-4" />
+      </Button>
+    </div>
+    <Button
+      size="icon"
+      variant="ghost"
+      onClick={() => removeFromCart(item.id)}
+    >
+      <TrashIcon className="h-5 w-5 text-red-500" />
+    </Button>
+  </div>
+))}
+
                 </div>
               )}
               {cart.length > 0 && (
@@ -1130,4 +1705,3 @@ if (!store) {
     </div>
   );
 }
-

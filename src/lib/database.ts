@@ -8,7 +8,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { Store, Product } from '@/types';
+import type { Store, Product, Extra } from '@/types';
 
 // Remove all admin SDK imports and functions - they belong server-side only
 
@@ -54,6 +54,31 @@ export async function getStoreProducts(storeId: string): Promise<Product[]> {
     return products;
   } catch (error) {
     console.error("Error fetching products:", error);
+    return [];
+  }
+}
+
+export async function getProductExtras(productId: string): Promise<Extra[]> {
+  try {
+    // Construct a reference to the 'Extras' subcollection on the specific product document.
+    const extrasCollectionRef = collection(doc(db, "products", productId), "Extras");
+
+    // Fetch all documents from the subcollection.
+    const querySnapshot = await getDocs(extrasCollectionRef);
+
+    // Map the documents to an array of Extra objects.
+    const extras = querySnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+      } as Extra;
+    });
+
+    // Return the array of extras.
+    return extras;
+  } catch (error) {
+    console.error("Error fetching product extras:", error);
     return [];
   }
 }

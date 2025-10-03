@@ -1,5 +1,3 @@
-// src/types/index.ts
-
 export interface Store {
   id: string;
   name: string;
@@ -93,4 +91,41 @@ export interface Order {
   updatedAt: Date;
   deliveryFee?: number;
   minimumOrder?: number;
+}
+
+export interface Extra {
+  id: string;
+  name: string;
+  price: number;
+  btwamount: number;
+  btwrate: number;
+  inkkoopprijs: number;
+  quantity: number;
+}
+
+export interface DayHours {
+  open: string;
+  close: string;
+  closed: boolean;
+}
+
+export interface OperatingHours {
+  takeaway: {
+    monday: DayHours;
+    tuesday: DayHours;
+    wednesday: DayHours;
+    thursday: DayHours;
+    friday: DayHours;
+    saturday: DayHours;
+    sunday: DayHours;
+  };
+  delivery: {
+    monday: DayHours;
+    tuesday: DayHours;
+    wednesday: DayHours;
+    thursday: DayHours;
+    friday: DayHours;
+    saturday: DayHours;
+    sunday: DayHours;
+  };
 }
