@@ -109,7 +109,7 @@ export interface DayHours {
   closed: boolean;
 }
 
-export interface OperatingHours {
+export interface OperatingHoursTakeaway {
   takeaway: {
     monday: DayHours;
     tuesday: DayHours;
@@ -119,6 +119,8 @@ export interface OperatingHours {
     saturday: DayHours;
     sunday: DayHours;
   };
+}
+export interface OperatingHoursDelivery {
   delivery: {
     monday: DayHours;
     tuesday: DayHours;
