@@ -1,8 +1,8 @@
 'use client';
 
-import { getProductExtras, getStore, getStoreProducts, } from '@/lib/database';
+import { getProductExtras, } from '@/lib/database';
 import '@/lib/appcheck'
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { checkDeliveryAvailability, isValidDutchPostalCode, cleanPostalCode } from '@/lib/deliveryZones';
 import {
   ShoppingCartIcon,
@@ -20,7 +20,7 @@ import {
   PackageIcon,
   HeartHandshakeIcon,
 } from 'lucide-react';
-import type { Store, Product, Extra, CartItem as ImportedCartItem, DayHours, OperatingHours } from '@/types';
+import type { Store, Product, Extra, CartItem as ImportedCartItem, DayHours, OperatingHoursTakeaway, OperatingHoursDelivery } from '@/types';
 import Image from 'next/image';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '@/lib/firebase';
@@ -667,18 +667,21 @@ interface ProductCardProps {
   product: UpdatedProduct;
   onAddToCart: (product: UpdatedProduct, extras: Extra[]) => void;
   brandColor?: string;
+  storeId: string; // Add this
 }
 
-const ProductCard = ({ product, onAddToCart, brandColor }: ProductCardProps) => {
+const ProductCard = ({ product, onAddToCart, brandColor, storeId }: ProductCardProps) => {
   const [expanded, setExpanded] = useState(false);
   const [extras, setExtras] = useState<Extra[]>([]);
   const [selectedExtras, setSelectedExtras] = useState<Record<string, boolean>>({});
 
+
   // Fetch extras when the card is expanded
-  useEffect(() => {
+ useEffect(() => {
     if (expanded) {
       const fetchExtras = async () => {
-        const fetchedExtras = await getProductExtras(product.id);
+        const response = await fetch(`/api/store/${storeId}/product/${product.id}/extras`);
+        const { extras: fetchedExtras } = await response.json();
         setExtras(fetchedExtras);
       };
       fetchExtras();
@@ -686,7 +689,7 @@ const ProductCard = ({ product, onAddToCart, brandColor }: ProductCardProps) => 
       setExtras([]);
       setSelectedExtras({});
     }
-  }, [expanded, product.id]);
+  }, [expanded, product.id, storeId]);
 
   const handleExpandToggle = () => {
     setExpanded(!expanded);
@@ -847,7 +850,22 @@ const categories = useMemo(() => {
   const onSaleProducts = useMemo(() => products.filter(p => p.onSale), [products]);
 
   const [activeCategory, setActiveCategory] = useState('All');
+  const [showScrollButtons, setShowScrollButtons] = useState(false);
+  const categoriesRef = useRef<HTMLDivElement>(null);
 
+    useEffect(() => {
+    const checkScroll = () => {
+      if (categoriesRef.current) {
+        const { scrollWidth, clientWidth } = categoriesRef.current;
+        setShowScrollButtons(scrollWidth > clientWidth);
+      }
+    };
+    
+    checkScroll();
+    window.addEventListener('resize', checkScroll);
+    return () => window.removeEventListener('resize', checkScroll);
+  }, [categories]);
+  
  const filteredProducts = useMemo(() => {
   const filtered = products.filter(p =>
     (activeCategory === 'All' || (p.category && p.category === activeCategory)) &&
@@ -888,18 +906,19 @@ const categories = useMemo(() => {
 {/* Categories with scroll buttons */}
 <div className="relative mb-8">
   <div className="flex items-center">
-    <button
-      className="flex-shrink-0 p-2 rounded-full bg-white shadow-md mr-2"
-      onClick={() => {
-        const container = document.getElementById('categories-container');
-        container?.scrollBy({ left: -200, behavior: 'smooth' });
-      }}
-    >
-      <ChevronLeftIcon className="h-4 w-4" />
-    </button>
+    {showScrollButtons && (
+      <button
+        className="flex-shrink-0 p-2 rounded-full bg-white shadow-md mr-2"
+        onClick={() => {
+          categoriesRef.current?.scrollBy({ left: -200, behavior: 'smooth' });
+        }}
+      >
+        <ChevronLeftIcon className="h-4 w-4" />
+      </button>
+    )}
     
     <div
-      id="categories-container"
+      ref={categoriesRef}
       className="flex overflow-x-auto space-x-2 scrollbar-hide flex-1"
       style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
     >
@@ -916,20 +935,21 @@ const categories = useMemo(() => {
       ))}
     </div>
     
-    <button
-      className="flex-shrink-0 p-2 rounded-full bg-white shadow-md ml-2"
-      onClick={() => {
-        const container = document.getElementById('categories-container');
-        container?.scrollBy({ left: 200, behavior: 'smooth' });
-      }}
-    >
-      <ChevronRightIcon className="h-4 w-4" />
-    </button>
+    {showScrollButtons && (
+      <button
+        className="flex-shrink-0 p-2 rounded-full bg-white shadow-md ml-2"
+        onClick={() => {
+          categoriesRef.current?.scrollBy({ left: 200, behavior: 'smooth' });
+        }}
+      >
+        <ChevronRightIcon className="h-4 w-4" />
+      </button>
+    )}
   </div>
 </div>
 
       {/* Product Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 items-start">
         {filteredProducts.length > 0 ? (
           filteredProducts.map(product => (
             <ProductCard
@@ -937,6 +957,7 @@ const categories = useMemo(() => {
               product={product}
               onAddToCart={onAddToCart}
               brandColor={store?.brandColor}
+              storeId={store.id}
             />
           ))
         ) : (
@@ -953,64 +974,6 @@ interface ReviewsPageProps {
   onNavigateToStore: () => void;
 }
 
-const ReviewsPage = ({ onNavigateToStore }: ReviewsPageProps) => {
-  return (
-    <div className="max-w-3xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-extrabold text-gray-900">Customer Reviews</h1>
-        <Button onClick={onNavigateToStore} variant="outline">
-          Back to Store
-        </Button>
-      </div>
-      <div className="bg-white p-6 rounded-lg shadow-lg">
-        <div className="space-y-6">
-          <div className="border-b pb-4">
-            <div className="flex items-center mb-2">
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-            </div>
-            <p className="font-semibold text-lg">Amazing products and fast delivery!</p>
-            <p className="text-gray-600 mt-1">
-              
-            </p>
-            <p className="text-sm text-gray-400 mt-2">- Sarah J.</p>
-          </div>
-          <div className="border-b pb-4">
-            <div className="flex items-center mb-2">
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-              <StarIcon className="h-5 w-5 text-gray-300 fill-current" />
-              <StarIcon className="h-5 w-5 text-gray-300 fill-current" />
-            </div>
-            <p className="font-semibold text-lg">Good quality, but a bit slow</p>
-            <p className="text-gray-600 mt-1">
-             
-            </p>
-            <p className="text-sm text-gray-400 mt-2">- David L.</p>
-          </div>
-          <div>
-            <div className="flex items-center mb-2">
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-              <StarIcon className="h-5 w-5 text-yellow-400 fill-current" />
-            </div>
-            <p className="font-semibold text-lg">My go-to store now!</p>
-            <p className="text-gray-600 mt-1">
-            
-            </p>
-            <p className="text-sm text-gray-400 mt-2">- Emily R.</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 interface ContactPageProps {
   store: UpdatedStore;
@@ -1114,7 +1077,8 @@ interface UpdatedStore extends Store {
   deliveryInformation?: string;
   returnPolicy?: string;
   bgImageUrl?: string; // New property for background image
-  operatingHours?: OperatingHours; // New property for operating hours
+  operatingHoursTakeaway?: OperatingHoursTakeaway;
+  operatingHoursDelivery?: OperatingHoursDelivery // New property for operating hours
 }
 
 interface StoreClientProps {
@@ -1123,15 +1087,15 @@ interface StoreClientProps {
 
 // Operating Hours Component
 interface OperatingHoursDisplayProps {
-  operatingHours: OperatingHours;
+  operatingHoursTakeaway?: OperatingHoursTakeaway;
+  operatingHoursDelivery?: OperatingHoursDelivery;
 }
 
-const OperatingHoursDisplay = ({ operatingHours }: OperatingHoursDisplayProps) => {
+const OperatingHoursDisplay = ({ operatingHoursTakeaway, operatingHoursDelivery }: OperatingHoursDisplayProps) => {
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
   const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   
   const formatTime = (time: string) => {
-    // Keep 24-hour format
     return time;
   };
 
@@ -1147,7 +1111,6 @@ const OperatingHoursDisplay = ({ operatingHours }: OperatingHoursDisplayProps) =
 
   const getCurrentDay = () => {
     const today = new Date().getDay();
-    // Convert Sunday (0) to index 6, Monday (1) to index 0, etc.
     return today === 0 ? 6 : today - 1;
   };
 
@@ -1163,7 +1126,7 @@ const OperatingHoursDisplay = ({ operatingHours }: OperatingHoursDisplayProps) =
         </h4>
         <div className="space-y-2">
           {days.map((day, index) => {
-            const dayHours = operatingHours.takeaway?.[day as keyof typeof operatingHours.takeaway];
+            const dayHours = operatingHoursTakeaway?.takeaway?.[day as keyof typeof operatingHoursTakeaway.takeaway];
             return (
               <div 
                 key={`takeaway-${day}`} 
@@ -1195,7 +1158,7 @@ const OperatingHoursDisplay = ({ operatingHours }: OperatingHoursDisplayProps) =
         </h4>
         <div className="space-y-2">
           {days.map((day, index) => {
-            const dayHours = operatingHours.delivery?.[day as keyof typeof operatingHours.delivery];
+            const dayHours = operatingHoursDelivery?.delivery?.[day as keyof typeof operatingHoursDelivery.delivery];
             return (
               <div 
                 key={`delivery-${day}`} 
@@ -1223,7 +1186,6 @@ const OperatingHoursDisplay = ({ operatingHours }: OperatingHoursDisplayProps) =
 };
 
 
-
 export const StoreClient = ({ storeId }: StoreClientProps) => {
   console.log('StoreClient received storeId:', storeId, typeof storeId);
 
@@ -1242,13 +1204,17 @@ export const StoreClient = ({ storeId }: StoreClientProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('name');
   const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
+useEffect(() => {
   const fetchData = async () => {
     try {
-      const [storeData, productsData] = await Promise.all([
-        getStore(storeId),
-        getStoreProducts(storeId),
-      ]);
+      const response = await fetch(`/api/store/${storeId}`);
+      
+      if (!response.ok) {
+        setIsLoading(false);
+        return;
+      }
+      
+      const { store: storeData, products: productsData } = await response.json();
       
       setStore(storeData);
       setInitialProducts(productsData || []);
@@ -1427,7 +1393,6 @@ if (!store) {
             <a onClick={() => setCurrentPage('store')} className={`cursor-pointer transition-colors hover:text-gray-600 ${currentPage === 'store' ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>Store</a>
             <a onClick={() => setCurrentPage('contact')} className={`cursor-pointer transition-colors hover:text-gray-600 ${currentPage === 'contact' ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>Contact</a>
             <a onClick={() => setCurrentPage('info')} className={`cursor-pointer transition-colors hover:text-gray-600 ${currentPage === 'info' ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>Info</a>
-            <a onClick={() => setCurrentPage('reviews')} className={`cursor-pointer transition-colors hover:text-gray-600 ${currentPage === 'reviews' ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>Reviews</a>
           </nav>
           {/* Search and Cart */}
           <div className="flex items-center space-x-4 mt-4 md:mt-0">
@@ -1469,7 +1434,7 @@ if (!store) {
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as SortOption)}
-                  className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm bg-white px-3 py-2"
                 >
                   <option value="name">Name</option>
                   <option value="priceLowToHigh">Price: Low to High</option>
@@ -1511,8 +1476,6 @@ if (!store) {
               return <ContactPage store={store} onNavigateToStore={() => setCurrentPage('store')} />;
             case 'info':
               return <InformationPage store={store} onNavigateToStore={() => setCurrentPage('store')} />;
-            case 'reviews':
-              return <ReviewsPage onNavigateToStore={() => setCurrentPage('store')} />;
             default:
               return null;
           }
@@ -1552,22 +1515,17 @@ if (!store) {
           >
             Info
           </a>
-          <a 
-            onClick={() => setCurrentPage('reviews')} 
-            className={`cursor-pointer transition-colors hover:text-gray-600 p-2 rounded-lg hover:bg-white ${
-              currentPage === 'reviews' ? 'text-gray-900 font-semibold bg-white shadow-sm' : 'text-gray-600'
-            }`}
-          >
-            Reviews
-          </a>
         </div>
       </div>
 
       {/* Operating Hours */}
       <div>
         <h4 className="text-xl font-bold text-gray-900 mb-4">Operating Hours</h4>
-        {store?.operatingHours ? (
-          <OperatingHoursDisplay operatingHours={store.operatingHours} />
+        {store?.operatingHoursTakeaway || store?.operatingHoursDelivery ? (
+          <OperatingHoursDisplay 
+            operatingHoursTakeaway={store.operatingHoursTakeaway} 
+            operatingHoursDelivery={store.operatingHoursDelivery}
+          />
         ) : (
           <div className="bg-gray-50 rounded-xl p-6">
             <p className="text-gray-500 text-center">Operating hours not available</p>

@@ -5,14 +5,14 @@ export function middleware(request: NextRequest) {
   const hostname = request.headers.get('host') || '';
   const path = url.pathname;
   
-  console.log('🔄 Middleware:', { hostname, path, search: url.search });
+  console.log('📄 Middleware:', { hostname, path, search: url.search });
 
   // Skip API routes, static files, and Next.js internals
   if (
     path.startsWith('/api/') ||
     path.startsWith('/_next/') ||
-    path.startsWith('/admin') || // Admin routes stay as-is
-    path.includes('.') // Static files (favicon.ico, etc.)
+    path.startsWith('/admin') ||
+    path.includes('.')
   ) {
     return NextResponse.next();
   }
@@ -22,37 +22,36 @@ export function middleware(request: NextRequest) {
   const isVercel = hostname.includes('vercel.app');
   const isFirebaseApp = hostname.includes('.web.app') || hostname.includes('.firebaseapp.com');
   
-  // For localhost development - use query parameter
+  // For localhost development - use query parameter or path
   if (isLocalhost) {
     const storeParam = url.searchParams.get('store');
     if (storeParam && path === '/') {
       console.log('✅ Localhost rewrite:', storeParam);
       url.pathname = `/store/${storeParam}`;
-      url.search = ''; // Remove query parameter
+      url.search = '';
       return NextResponse.rewrite(url);
     }
     return NextResponse.next();
   }
   
-  // Check if this is a custom domain (not development/hosting platforms)
-  const isCustomDomain = !isLocalhost && !isVercel && !isFirebaseApp;
+  // YOUR_MAIN_DOMAIN should be your actual domain (e.g., 'ordernow.com')
+  const YOUR_MAIN_DOMAIN = 'maal-tijd.com'; // Change this to your actual domain
+  const isMainDomain = hostname === YOUR_MAIN_DOMAIN || hostname === `www.${YOUR_MAIN_DOMAIN}`;
+  const isSubdomain = hostname.endsWith(`.${YOUR_MAIN_DOMAIN}`) && !isMainDomain;
+  const isCustomDomain = !isLocalhost && !isVercel && !isFirebaseApp && !isMainDomain && !isSubdomain;
   
+  // PRIORITY 1: Custom Domain (highest priority)
   if (isCustomDomain) {
-    // For custom domains, determine the store ID based on your strategy
+    // Use the full domain as the store identifier
     let storeId: string;
-    
-    // Strategy 1: Use the full domain name without TLD as store ID
-    // e.g., 'bakery.com' -> 'bakery', 'johnsshop.net' -> 'johnsshop'
     const domainParts = hostname.split('.');
-    if (domainParts.length >= 2) {
-      storeId = domainParts[0]; // Gets 'bakery' from 'bakery.com'
-    } else {
-      storeId = hostname; // Fallback to full hostname
-    }
     
-    // Strategy 2: Alternative - use a mapping or the full domain
-    // You could also maintain a mapping of domains to store IDs
-    // or use the full domain as the store ID if that's your setup
+    // Use full domain or just the main part
+    if (domainParts.length >= 2) {
+      storeId = domainParts[0]; // Gets 'soulfoodmama' from 'soulfoodmama.com'
+    } else {
+      storeId = hostname;
+    }
     
     if (path === '/') {
       console.log('✅ Custom domain rewrite:', `${hostname} -> store/${storeId}`);
@@ -60,7 +59,6 @@ export function middleware(request: NextRequest) {
       return NextResponse.rewrite(url);
     }
     
-    // Handle other routes under custom domain
     if (!path.startsWith('/store/')) {
       console.log('✅ Custom domain route rewrite:', `${hostname}${path} -> store/${storeId}${path}`);
       url.pathname = `/store/${storeId}${path}`;
@@ -70,21 +68,33 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
   
-  // If we get here, it's likely your main development/hosting domain
-  // You can choose to either show a landing page or redirect
+  // PRIORITY 2: Subdomain (fallback if no custom domain)
+  if (isSubdomain) {
+    const domainParts = hostname.split('.');
+    const subdomain = domainParts[0]; // Gets 'soulfoodmama' from 'soulfoodmama.yourdomain.com'
+    
+    if (path === '/') {
+      console.log('✅ Subdomain rewrite:', `${hostname} -> store/${subdomain}`);
+      url.pathname = `/store/${subdomain}`;
+      return NextResponse.rewrite(url);
+    }
+    
+    if (!path.startsWith('/store/')) {
+      console.log('✅ Subdomain route rewrite:', `${hostname}${path} -> store/${subdomain}${path}`);
+      url.pathname = `/store/${subdomain}${path}`;
+      return NextResponse.rewrite(url);
+    }
+    
+    return NextResponse.next();
+  }
+  
+  // PRIORITY 3: Main domain - regular path-based routing
+  // URLs like yourdomain.com/store/soulfood-mama work normally
   return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - Any file with extension
-     */
     '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 };

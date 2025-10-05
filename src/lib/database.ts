@@ -6,6 +6,7 @@ import {
   getDocs, 
   query, 
   where,
+  limit
 } from 'firebase/firestore';
 import { db } from './firebase';
 import type { Store, Product, Extra } from '@/types';
@@ -16,46 +17,56 @@ import type { Store, Product, Extra } from '@/types';
 // All functions here are designed to work without user authentication.
 
 // Store functions
-export async function getStore(storeId: string): Promise<Store | null> {
-  try {
-    const docRef = doc(db, 'stores', storeId);
-    const docSnap = await getDoc(docRef);
-    console.log('Document path:', docRef.path);
-    
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      console.log('Store data retrieved:', data);
-      return { id: docSnap.id, ...data } as Store;
-    } else {
-      console.log('No store found with ID:', storeId);
-      return null;
-    }
-  } catch (error: unknown) {
-    console.error('Full error details:', error);
-    console.error('Error stack:', (error as Error).stack);
-    throw error;
+export async function getStore(identifier: string) {
+  // Query by slug or subdomain
+  const storeQuery = query(
+    collection(db, 'stores'),
+    where('slug', '==', identifier),
+    limit(1)
+  );
+  
+  let snapshot = await getDocs(storeQuery);
+  
+  // If not found by slug, try subdomain
+  if (snapshot.empty) {
+    const subdomainQuery = query(
+      collection(db, 'stores'),
+      where('subdomain', '==', identifier),
+      limit(1)
+    );
+    snapshot = await getDocs(subdomainQuery);
   }
+  
+  if (snapshot.empty) {
+    return null;
+  }
+  
+  return {
+    id: snapshot.docs[0].id, // The actual Firestore document ID
+    ...snapshot.docs[0].data()
+  } as Store;
 }
 
-export async function getStoreProducts(storeId: string): Promise<Product[]> {
-  try {
-    const productsCollection = collection(db, "products");
-    const q = query(productsCollection, where("storeId", "==", storeId));
-    const querySnapshot = await getDocs(q);
-
-    const products = querySnapshot.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        ...data,
-      } as Product;
-    });
-
-    return products;
-  } catch (error) {
-    console.error("Error fetching products:", error);
+export async function getStoreProducts(identifier: string) {
+  // First get the store to find its real document ID
+  const store = await getStore(identifier);
+  
+  if (!store) {
     return [];
   }
+  
+  // Now query products using the actual Firestore document ID
+  const productsQuery = query(
+    collection(db, 'products'),
+    where('storeId', '==', store.id)
+  );
+  
+  const snapshot = await getDocs(productsQuery);
+  
+  return snapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  })) as Product[];
 }
 
 export async function getProductExtras(productId: string): Promise<Extra[]> {

@@ -120,17 +120,16 @@ export default function Homepage() {
       <div className="min-h-screen bg-orange-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="text-center">
-            <h1 className="text-4xl md:text-6xl font-extrabold text-gray-900 mb-6">
+            <h1 className="text-6xl md:text-8xl font-extrabold text-green-500 mb-4">
               <span className="text-orange-600">Maal</span>-Tijd
-              <span className="text-teal-700"> Webshops</span>
             </h1>
             <p className="text-xl text-gray-600 mb-12 max-w-3xl mx-auto">
-              Discover your next favorite meal! A multi-tenant platform for the best local food and service webshops.
+              Discover your next favorite meal!
             </p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-6xl mx-auto w-full">
-            <h2 className="text-3xl font-bold mb-8 text-teal-800 text-center">🍽️ Discover Local Webshops</h2>
+            <h2 className="text-3xl font-bold mb-8 text-teal-800 text-center">🍽️ Discover Your Favourite Restaurants</h2>
             
             {/* Search bar */}
             <div className="relative mb-6">

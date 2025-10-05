@@ -35,12 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.helloWorld = void 0;
 const functions = __importStar(require("firebase-functions"));
-exports.helloWorld = functions.https.onRequest((req, res) => {
-    res.send("Hello from Firebase!");
-});
-
 const admin = require("firebase-admin");
-
 admin.initializeApp();
 const db = admin.firestore();
 
@@ -60,7 +55,6 @@ exports.nextApp = functions.https.onRequest((req, res) => {
 const secretClient = new SecretManagerServiceClient();
 
 // Constants
-const { makeMollieApiRequest } = require("./mollieHelper");
 const MOLLIE_API_BASE_URL = "https://api.mollie.com/v2";
 const COLLECTION_ONLINE_PAYMENTS = "online_payments";
 const {createMollieClient} = require("@mollie/api-client");
@@ -162,19 +156,17 @@ exports.createMollieOnlinePayment = functions.https.onCall(async (data, context)
                 value: amount.value,
                 currency: amount.currency,
             },
-            method: method || undefined, // Don't specify method if not provided (let customer choose)
+            method: method || "ideal", // Don't specify method if not provided (let customer choose)
             description: description,
             
             // Partner Organization specific fields
             profileId: profileId,
             
             // Application fee (your commission)
-           applicationFee: applicationFee ? {
-                amount: {
-                    value: applicationFee.amount.value,
-                    currency: applicationFee.amount.currency,
-                },
-             description: applicationFee.description} : undefined,
+              applicationFee: applicationFee ? {
+              amount: applicationFee.amount, // Pass the amount object directly
+              description: applicationFee.description
+              } : undefined,
             
             // URLs
             redirectUrl: redirectUrl,
@@ -229,171 +221,228 @@ exports.createMollieOnlinePayment = functions.https.onCall(async (data, context)
 });
 
 exports.createOrder = functions.https.onRequest(async (req, res) => {
-  cors(req, res, async () => {
+  const origin = req.get("Origin") || "";
+
+  try {
+    // ✅ Set CORS headers for ALL requests (including preflight)
+    res.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Credentials", "true");
+
+    // Handle preflight OPTIONS request FIRST
+    if (req.method === "OPTIONS") {
+      // Allow preflight from any origin, actual request will be validated
+      res.set("Access-Control-Allow-Origin", origin || "*");
+      return res.status(204).send("");
+    }
+
     // Only allow POST requests
-    if (req.method !== 'POST') {
-      return res.status(405).send('Method Not Allowed');
-    }
-
-    const { storeId, customer, items, currency = 'EUR', tax = 0, discount = 0, shippingCost = 0, metadata = {} } = req.body;
-
-    // Enhanced validation
-    if (!storeId || !customer || !items || items.length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Missing required order payload: storeId, customer, and items are required.' 
+    if (req.method !== "POST") {
+      return res.status(405).json({
+        success: false,
+        message: "Method Not Allowed"
       });
     }
 
-    // Validate customer payload
+    const { 
+      storeId, 
+      customer, 
+      items, 
+      currency = "EUR", 
+      tax = 0, 
+      discount = 0, 
+      shippingCost = 0, 
+      metadata = {} 
+    } = req.body;
+
+    // Validation - storeId required first
+    if (!storeId) {
+      return res.status(400).json({
+        success: false,
+        message: "storeId is required."
+      });
+    }
+
+    // 🔒 CRITICAL: Verify store exists and check origin BEFORE processing anything else
+    const storeDoc = await admin.firestore().collection("stores").doc(storeId).get();
+    
+    if (!storeDoc.exists) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Store not found." 
+      });
+    }
+
+    const storeData = storeDoc.data();
+    const allowedOrigins = storeData.allowedOrigins || [];
+
+    // 🛡️ PRODUCTION: Strict origin validation
+    if (!allowedOrigins.includes(origin)) {
+      console.warn(`🚫 Blocked request from unauthorized origin: ${origin} for store: ${storeId}`);
+      console.warn(`Allowed origins for this store:`, allowedOrigins);
+      
+      return res.status(403).json({
+        success: false,
+        message: "This origin is not authorized to create orders for this store.",
+        hint: "Store owner needs to add this domain to allowedOrigins in Firestore."
+      });
+    }
+
+    // ✅ Origin is valid - set CORS header
+    res.set("Access-Control-Allow-Origin", origin);
+    res.set("Vary", "Origin");
+
+    // Validate remaining required fields
+    if (!customer || !items || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required order data: customer and items are required."
+      });
+    }
+
     if (!customer.email) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Customer email is required.' 
+      return res.status(400).json({
+        success: false,
+        message: "Customer email is required."
       });
     }
 
-    // Validate items
+    // Validate each item
     for (const item of items) {
       if (!item.id || !item.name || !item.price || !item.quantity) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Each item must have id, name, price, and quantity.' 
+        return res.status(400).json({
+          success: false,
+          message: "Each item must have id, name, price, and quantity."
+        });
+      }
+
+      // Additional validation for security
+      if (parseFloat(item.price) < 0 || parseInt(item.quantity) < 1) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid item price or quantity."
         });
       }
     }
 
-    let ownerId;
+    const ownerId = storeData.ownerId;
 
-    try {
-      // Verify store exists
-      const storeDoc = await admin.firestore().collection('stores').doc(storeId).get();
-      if (!storeDoc.exists) {
-        return res.status(404).json({ 
-          success: false, 
-          message: 'Store not found.' 
-        });
-      }
+    // Calculate totals with validation
+    const subtotal = items.reduce((sum, item) => {
+      return sum + (parseFloat(item.price) * parseInt(item.quantity));
+    }, 0);
+    
+    const taxAmount = Math.max(0, parseFloat(tax) || 0);
+    const discountAmount = Math.max(0, parseFloat(discount) || 0);
+    const shippingAmount = Math.max(0, parseFloat(shippingCost) || 0);
+    const total = Math.max(0, subtotal + taxAmount + shippingAmount - discountAmount);
 
-      const storeData = storeDoc.data();
-      ownerId = storeData.ownerId
-      console.log('Store ID:', storeId);
-console.log('Store exists:', storeDoc.exists);
-console.log('Store ownerId:', storeData?.ownerId);
-console.log('Store name:', storeData?.name);
-console.log('Store data keys:', Object.keys(storeData || {}));
-
-
-      // Calculate totals
-      const subtotal = items.reduce((sum, item) => sum + (parseFloat(item.price) * parseInt(item.quantity)), 0);
-      const taxAmount = parseFloat(tax) || 0;
-      const discountAmount = parseFloat(discount) || 0;
-      const shippingAmount = parseFloat(shippingCost) || 0;
-      const total = subtotal + taxAmount + shippingAmount - discountAmount;
-
-      // Generate order number
-      const orderNumber = await generateOrderNumber(storeId);
-
-      const orderData = {
-        // Basic order info
-        storeId,
-        orderNumber,
-        ownerId,
-        
-        // Customer information
-        customerEmail: customer.email,
-        customerName: customer.name || customer.email,
-        customerPhone: customer.phone || null,
-        
-        // Items as array (no subcollection needed!)
-        items: items.map(item => ({
-          id: item.id,
-          name: item.name,
-          price: parseFloat(item.price).toFixed(2),
-          quantity: parseInt(item.quantity),
-          imageUrl: item.imageUrl || null,
-          category: item.category || null,
-          sku: item.sku || null,
-          subtotal: (parseFloat(item.price) * parseInt(item.quantity)).toFixed(2)
-        })),
-        
-        // Financial details
-        subtotal: subtotal.toFixed(2),
-        tax: taxAmount.toFixed(2),
-        discount: discountAmount.toFixed(2),
-        shippingCost: shippingAmount.toFixed(2),
-        total: total.toFixed(2),
-        currency: currency.toUpperCase(),
-        
-        // Order status
-        orderStatus: 'pending',
-        paymentStatus: 'pending',
-        
-        // Addresses (if provided)
-        billingAddress: customer.billingAddress || null,
-        shippingAddress: customer.shippingAddress || null,
-        
-        // Additional metadata
-        metadata: {
-          ...metadata,
-          source: 'online_store', // vs 'pos', 'api', etc.
-          userAgent: req.get('User-Agent') || null,
-          ipAddress: req.ip || null
-        },
-        
-        // Timestamps
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      };
-
-      // Create the order
-      const orderRef = await admin.firestore().collection('online_orders').add(orderData);
-      
-      // Log order creation
-      console.log(`✅ Order created successfully: ${orderRef.id} for store ${storeId}`);
-
-      return res.status(200).json({ 
-        success: true, 
-        orderId: orderRef.id,
-        orderNumber: orderNumber,
-        total: total.toFixed(2),
-        currency: currency.toUpperCase()
-      });
-
-    } catch (error) {
-      console.error('❌ Error creating order:', error);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create order.',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    // Validate total isn't suspiciously low
+    if (total < 0.01) {
+      return res.status(400).json({
+        success: false,
+        message: "Order total must be at least 0.01"
       });
     }
-  });
+
+    // Generate order number
+    const orderNumber = await generateOrderNumber(storeId);
+
+    const orderData = {
+      storeId,
+      orderNumber,
+      ownerId,
+      customerEmail: customer.email,
+      customerName: customer.name || customer.email,
+      customerPhone: customer.phone || null,
+      items: items.map(item => ({
+        id: item.id,
+        name: item.name,
+        price: parseFloat(item.price).toFixed(2),
+        quantity: parseInt(item.quantity),
+        imageUrl: item.imageUrl || null,
+        category: item.category || null,
+        sku: item.sku || null,
+        subtotal: (parseFloat(item.price) * parseInt(item.quantity)).toFixed(2)
+      })),
+      subtotal: subtotal.toFixed(2),
+      tax: taxAmount.toFixed(2),
+      discount: discountAmount.toFixed(2),
+      shippingCost: shippingAmount.toFixed(2),
+      total: total.toFixed(2),
+      currency: currency.toUpperCase(),
+      orderStatus: "pending",
+      paymentStatus: "pending",
+      billingAddress: customer.billingAddress || null,
+      shippingAddress: customer.shippingAddress || null,
+      metadata: {
+        ...metadata,
+        source: "online_store",
+        userAgent: req.get("User-Agent") || null,
+        ipAddress: req.ip || null,
+        origin: origin,
+        createdVia: "createOrder_function_v1"
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    // Save order to Firestore
+    const orderRef = await admin.firestore().collection("online_orders").add(orderData);
+    
+    console.log(`✅ Order created successfully:`, {
+      orderId: orderRef.id,
+      orderNumber: orderNumber,
+      storeId: storeId,
+      origin: origin,
+      total: total.toFixed(2),
+      currency: currency.toUpperCase()
+    });
+
+    return res.status(200).json({
+      success: true,
+      orderId: orderRef.id,
+      orderNumber: orderNumber,
+      total: total.toFixed(2),
+      currency: currency.toUpperCase()
+    });
+
+  } catch (error) {
+    console.error("❌ Error creating order:", error);
+    
+    // Set CORS header for error responses too
+    if (origin) {
+      res.set("Access-Control-Allow-Origin", origin);
+    }
+    
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create order. Please try again.",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined
+    });
+  }
 });
-
-// 🔢 Helper function to generate unique order numbers
+// Helper for order numbers
 async function generateOrderNumber(storeId) {
   const today = new Date();
   const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  
-  // Format: ORD-YYYY-MM-DD-XXX (where XXX is a sequential number)
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+
   const datePrefix = `ORD-${year}-${month}-${day}`;
-  
-  // Get today's orders count for this store
+
   const startOfDay = new Date(year, today.getMonth(), today.getDate());
   const endOfDay = new Date(year, today.getMonth(), today.getDate() + 1);
-  
+
   const todaysOrders = await admin.firestore()
-    .collection('online_orders')
-    .where('storeId', '==', storeId)
-    .where('createdAt', '>=', startOfDay)
-    .where('createdAt', '<', endOfDay)
+    .collection("online_orders")
+    .where("storeId", "==", storeId)
+    .where("createdAt", ">=", startOfDay)
+    .where("createdAt", "<", endOfDay)
     .get();
-  
-  const sequentialNumber = String(todaysOrders.size + 1).padStart(3, '0');
-  
+
+  const sequentialNumber = String(todaysOrders.size + 1).padStart(3, "0");
+
   return `${datePrefix}-${sequentialNumber}`;
 }
 
