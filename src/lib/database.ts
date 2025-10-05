@@ -93,3 +93,46 @@ export async function getProductExtras(productId: string): Promise<Extra[]> {
     return [];
   }
 }
+
+// Add this to lib/database.ts
+export async function getStoreByDomain(domain: string) {
+  // Remove port if present (localhost:3000 → localhost)
+  const cleanDomain = domain.split(':')[0];
+  
+  const storeQuery = query(
+    collection(db, 'stores'),
+    where('customDomain', '==', cleanDomain),
+    limit(1)
+  );
+  
+  const snapshot = await getDocs(storeQuery);
+  
+  if (snapshot.empty) {
+    return null;
+  }
+  
+  return {
+    id: snapshot.docs[0].id,
+    ...snapshot.docs[0].data()
+  } as Store;
+}
+
+// lib/database.ts
+export async function getStoreBySubdomain(subdomain: string) {
+  const storeQuery = query(
+    collection(db, 'stores'),
+    where('subdomain', '==', subdomain),
+    limit(1)
+  );
+  
+  const snapshot = await getDocs(storeQuery);
+  
+  if (snapshot.empty) {
+    return null;
+  }
+  
+  return {
+    id: snapshot.docs[0].id,
+    ...snapshot.docs[0].data()
+  } as Store;
+}
