@@ -1,6 +1,6 @@
 'use client';
 
-import { getProductExtras, getStore, getStoreProducts, } from '@/lib/database';
+import { getProductExtras, } from '@/lib/database';
 import '@/lib/appcheck'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { checkDeliveryAvailability, isValidDutchPostalCode, cleanPostalCode } from '@/lib/deliveryZones';
@@ -667,23 +667,21 @@ interface ProductCardProps {
   product: UpdatedProduct;
   onAddToCart: (product: UpdatedProduct, extras: Extra[]) => void;
   brandColor?: string;
+  storeId: string; // Add this
 }
 
-const ProductCard = ({ product, onAddToCart, brandColor }: ProductCardProps) => {
+const ProductCard = ({ product, onAddToCart, brandColor, storeId }: ProductCardProps) => {
   const [expanded, setExpanded] = useState(false);
   const [extras, setExtras] = useState<Extra[]>([]);
   const [selectedExtras, setSelectedExtras] = useState<Record<string, boolean>>({});
 
-    useEffect(() => {
-    setExpanded(false);
-    setExtras([]);
-    setSelectedExtras({});
-  }, [product.id]);
+
   // Fetch extras when the card is expanded
-  useEffect(() => {
+ useEffect(() => {
     if (expanded) {
       const fetchExtras = async () => {
-        const fetchedExtras = await getProductExtras(product.id);
+        const response = await fetch(`/api/store/${storeId}/product/${product.id}/extras`);
+        const { extras: fetchedExtras } = await response.json();
         setExtras(fetchedExtras);
       };
       fetchExtras();
@@ -691,7 +689,7 @@ const ProductCard = ({ product, onAddToCart, brandColor }: ProductCardProps) => 
       setExtras([]);
       setSelectedExtras({});
     }
-  }, [expanded, product.id]);
+  }, [expanded, product.id, storeId]);
 
   const handleExpandToggle = () => {
     setExpanded(!expanded);
@@ -959,6 +957,7 @@ const categories = useMemo(() => {
               product={product}
               onAddToCart={onAddToCart}
               brandColor={store?.brandColor}
+              storeId={store.id}
             />
           ))
         ) : (
@@ -1205,13 +1204,17 @@ export const StoreClient = ({ storeId }: StoreClientProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('name');
   const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
+useEffect(() => {
   const fetchData = async () => {
     try {
-      const [storeData, productsData] = await Promise.all([
-        getStore(storeId),
-        getStoreProducts(storeId),
-      ]);
+      const response = await fetch(`/api/store/${storeId}`);
+      
+      if (!response.ok) {
+        setIsLoading(false);
+        return;
+      }
+      
+      const { store: storeData, products: productsData } = await response.json();
       
       setStore(storeData);
       setInitialProducts(productsData || []);
