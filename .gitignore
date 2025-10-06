@@ -41,3 +41,6 @@ serviceAccountKey.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+#vercel domain values
+Vercel_domain_values.txt

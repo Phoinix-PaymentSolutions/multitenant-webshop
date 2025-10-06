@@ -277,16 +277,13 @@ exports.createOrder = functions.https.onRequest(async (req, res) => {
     const allowedOrigins = storeData.allowedOrigins || [];
 
     // 🛡️ PRODUCTION: Strict origin validation
-    if (!allowedOrigins.includes(origin)) {
-      console.warn(`🚫 Blocked request from unauthorized origin: ${origin} for store: ${storeId}`);
-      console.warn(`Allowed origins for this store:`, allowedOrigins);
-      
-      return res.status(403).json({
-        success: false,
-        message: "This origin is not authorized to create orders for this store.",
-        hint: "Store owner needs to add this domain to allowedOrigins in Firestore."
-      });
-    }
+    
+const originHost = origin.replace(/^https?:\/\//, "").replace(/\/$/, "");
+const alwaysAllowed = ["maal-tijd.com"];
+
+if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost)) {
+  return res.status(403).json({ message: "Origin not allowed" });
+}
 
     // ✅ Origin is valid - set CORS header
     res.set("Access-Control-Allow-Origin", origin);

@@ -352,7 +352,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
          value: '0.10', currency: 'EUR' },
         description: "standard App Fee"},
       description: `${deliveryOption === 'delivery' ? 'Delivery' : 'Takeaway'} order from ${store.name}`,
-      redirectUrl: `${window.location.origin}/order-success?orderId=${orderId}`,
+      redirectUrl: `${window.location.origin}/payment-return?orderId=${orderId}`,
       webhookUrl: `https://molliewebhook-5zsbq77b5q-uc.a.run.app`, // Your webhook URL
       metadata: {
         storeId: store.id,
