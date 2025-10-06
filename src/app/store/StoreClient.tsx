@@ -724,6 +724,7 @@ const ProductCard = ({ product, onAddToCart, brandColor, storeId }: ProductCardP
     <div className="group relative bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden transform transition-all hover:scale-[1.02]">
       <div className="relative w-full h-48 sm:h-64 bg-gray-100">
         <Image
+          priority={true}
           src={product.imageUrl || 'https://placehold.co/400x400/E5E7EB/9CA3AF?text=Product'}
           alt={product.name}
           width={400}
@@ -1187,7 +1188,7 @@ const OperatingHoursDisplay = ({ operatingHoursTakeaway, operatingHoursDelivery 
 
 
 export const StoreClient = ({ storeId }: StoreClientProps) => {
-  console.log('StoreClient received storeId:', storeId, typeof storeId);
+  
 
   if (!storeId) {
     console.error('No storeId provided!');

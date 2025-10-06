@@ -518,109 +518,178 @@ exports.manageOrders = functions.https.onCall(async (payload, context) => {
 
 
 exports.mollieWebhook = functions.https.onRequest(async (req, res) => {
-  // Enable CORS if needed
+  // Log all incoming webhook requests
+  console.log('🔔 Webhook received:', {
+    method: req.method,
+    body: req.body,
+    timestamp: new Date().toISOString()
+  });
+
+  // Enable CORS
   res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Methods', 'POST');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
 
+  // Handle OPTIONS preflight
+  if (req.method === 'OPTIONS') {
+    console.log('✅ OPTIONS preflight handled');
+    return res.status(204).send('');
+  }
+
   if (req.method !== "POST") {
+    console.warn('⚠️  Wrong method:', req.method);
     return res.status(405).send("Method Not Allowed");
   }
 
   const paymentId = req.body.id;
   if (!paymentId) {
-    console.error("No payment ID in webhook request");
+    console.error("❌ No payment ID in webhook request");
     return res.status(400).send("No payment ID in request");
   }
 
-  console.log("Webhook received for payment:", paymentId);
+  console.log("✅ Processing webhook for payment:", paymentId);
 
   try {
-    // 🔍 First, get the payment from our database to find the userId
-    const paymentDoc = await admin.firestore()
-      .collection(COLLECTION_ONLINE_PAYMENTS)
-      .doc(paymentId)
+    // 🔍 Find the order by searching for the payment ID in metadata
+    const ordersSnapshot = await admin.firestore()
+      .collection('online_orders')
+      .where('metadata.molliePaymentId', '==', paymentId)
+      .limit(1)
       .get();
 
-    if (!paymentDoc.exists) {
-      console.error("Payment not found in database:", paymentId);
-      return res.status(404).send("Payment not found");
+    if (ordersSnapshot.empty) {
+      console.error("❌ Order not found for payment:", paymentId);
+      // Still return 200 to prevent Mollie retries, but log for investigation
+      return res.status(200).send("Order not found - logged for investigation");
     }
 
-    const paymentData = paymentDoc.payload();
-    const userId = paymentData.metadata?.userId;
+    const orderDoc = ordersSnapshot.docs[0];
+    const orderId = orderDoc.id;
+    const orderData = orderDoc.data();
+    
+    console.log('📋 Order found:', {
+      orderId,
+      orderNumber: orderData.orderNumber,
+      currentPaymentStatus: orderData.paymentStatus
+    });
+
+    const userId = orderData.ownerId;
     
     if (!userId) {
-      console.error("No userId found in payment metadata:", paymentId);
-      return res.status(400).send("No userId in payment metadata");
+      console.error("❌ No ownerId found in order:", orderId);
+      return res.status(200).send("No ownerId - logged for investigation");
     }
 
-    // 🌐 Fetch latest payment details from Mollie using the correct user's credentials
-    const response = await makeMollieApiRequest(userId, {
-      method: "GET",
-      url: `${MOLLIE_API_BASE_URL}/payments/${paymentId}`,
-      headers: { "Content-Type": "application/json" }
-    });
+    console.log('👤 User ID:', userId);
 
-    const updatedPayment = response.payload;
-    console.log("Payment status update:", {
+    // 🌐 Fetch latest payment details from Mollie using owner's credentials
+    console.log('🌐 Fetching payment from Mollie API...');
+    
+    // Get user's Mollie access token
+    const tokenDoc = await admin.firestore()
+      .collection('mollie_tokens')
+      .doc(userId)
+      .get();
+    
+    if (!tokenDoc.exists) {
+      throw new Error(`Mollie access token not found for userId: ${userId}`);
+    }
+    
+    const accessToken = tokenDoc.data().access_token;
+    
+    // Fetch payment from Mollie
+    const mollieClient = createMollieClient({ accessToken: accessToken });
+    const updatedPayment = await mollieClient.payments.get(paymentId);
+
+    console.log("📊 Payment status from Mollie:", {
       paymentId: paymentId,
-      oldStatus: paymentData.status,
-      newStatus: updatedPayment.status,
-      userId: userId
+      orderId: orderId,
+      orderNumber: orderData.orderNumber,
+      currentPaymentStatus: orderData.paymentStatus,
+      newPaymentStatus: updatedPayment.status,
+      amount: updatedPayment.amount,
+      paidAt: updatedPayment.paidAt
     });
 
-    // 💾 Update the payment in Firestore
-    await admin.firestore()
-      .collection(COLLECTION_ONLINE_PAYMENTS)
-      .doc(paymentId)
-      .update({
+    // 💾 Update the order's paymentStatus and metadata in Firestore
+    const updateData = {
+      paymentStatus: updatedPayment.status,
+      'metadata.molliePaymentData': {
+        id: updatedPayment.id,
         status: updatedPayment.status,
-        mollieData: updatedPayment,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        webhookReceivedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
+        amount: updatedPayment.amount,
+        method: updatedPayment.method,
+        paidAt: updatedPayment.paidAt,
+        webhookReceivedAt: new Date().toISOString()
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
 
-    // 🎯 Handle specific status changes
-    await handlePaymentStatusChange(updatedPayment, paymentData);
+    // Add status-specific fields
+    if (updatedPayment.status === 'paid') {
+      updateData.orderStatus = 'paid';
+      updateData['metadata.paidAt'] = updatedPayment.paidAt || new Date().toISOString();
+    } else if (['failed', 'canceled', 'expired'].includes(updatedPayment.status)) {
+      updateData.orderStatus = 'cancelled';
+      updateData['metadata.failedAt'] = new Date().toISOString();
+      updateData['metadata.failureReason'] = updatedPayment.status;
+    }
 
-    // ✅ Always respond 200 to Mollie (this is crucial!)
+    await admin.firestore()
+      .collection('online_orders')
+      .doc(orderId)
+      .update(updateData);
+
+    console.log('💾 Order updated in Firestore:', {
+      orderId,
+      orderNumber: orderData.orderNumber,
+      newPaymentStatus: updatedPayment.status
+    });
+
+    // 🎯 Handle specific status changes (send emails, etc.)
+    await handlePaymentStatusChange(updatedPayment, orderData, orderId);
+
+    // ✅ Always respond 200 to Mollie
+    console.log('✅ Webhook processed successfully for payment:', paymentId);
     res.status(200).send("OK");
 
   } catch (error) {
-    console.error("Error handling Mollie webhook:", error);
+    console.error("❌ Error handling Mollie webhook:", {
+      paymentId,
+      error: error.message,
+      stack: error.stack
+    });
     
     // 🚨 Still respond 200 to prevent Mollie from retrying
-    // Log the error for investigation but don't fail the webhook
     res.status(200).send("Error logged");
   }
 });
 
-// 🎯 Helper function to handle different payment statuses
-async function handlePaymentStatusChange(updatedPayment, originalPaymentData) {
+// 🎯 Updated helper function to handle different payment statuses
+async function handlePaymentStatusChange(updatedPayment, orderData, orderId) {
   const paymentId = updatedPayment.id;
   const newStatus = updatedPayment.status;
-  const userId = originalPaymentData.metadata?.userId;
-  const storeId = originalPaymentData.metadata?.storeId;
+  const userId = orderData.ownerId;
+  const storeId = orderData.storeId;
 
-  console.log(`Handling status change to ${newStatus} for payment ${paymentId}`);
+  console.log(`Handling status change to ${newStatus} for payment ${paymentId}, order ${orderId}`);
 
   switch (newStatus) {
     case 'paid':
-      // 🎉 Payment successful - activate order/service
-      await handleSuccessfulPayment(paymentId, userId, storeId, updatedPayment);
+      // 🎉 Payment successful
+      await handleSuccessfulPayment(paymentId, userId, storeId, orderId, orderData, updatedPayment);
       break;
       
     case 'failed':
     case 'canceled':
     case 'expired':
-      // ❌ Payment failed - handle accordingly
-      await handleFailedPayment(paymentId, userId, storeId, updatedPayment);
+      // ❌ Payment failed
+      await handleFailedPayment(paymentId, userId, storeId, orderId, orderData, updatedPayment);
       break;
       
     case 'pending':
       // ⏳ Payment is being processed
-      console.log(`Payment ${paymentId} is pending`);
+      console.log(`Payment ${paymentId} is pending for order ${orderId}`);
       break;
       
     default:
@@ -629,60 +698,76 @@ async function handlePaymentStatusChange(updatedPayment, originalPaymentData) {
 }
 
 // 🎉 Handle successful payments
-async function handleSuccessfulPayment(paymentId, userId, storeId, paymentData) {
-  console.log(`Processing successful payment: ${paymentId}`);
+async function handleSuccessfulPayment(paymentId, userId, storeId, orderId, orderData, paymentData) {
+  console.log(`✅ Processing successful payment: ${paymentId} for order ${orderId}`);
   
   try {
-    // Add your business logic here:
-
-    // - Mark order as paid
-    // - Send confirmation email
-    // - Activate digital products
-    // - Update inventory
-    // - Trigger fulfillment process
+    // Order is already updated in the main webhook function
+    // Add any additional business logic here:
     
-    // Example: Update order status
-    if (paymentData.metadata?.orderId) {
-      await admin.firestore()
-        .collection('online_orders')
-        .doc(paymentData.metadata.orderId)
-        .update({
-          paymentStatus: 'paid',
-          paidAt: admin.firestore.FieldValue.serverTimestamp(),
-          storeId: storeId
-        });
-    }
+    // TODO: Send confirmation email to customer
+    console.log(`📧 TODO: Send confirmation email to ${orderData.customerEmail}`);
     
-    console.log(`Successfully processed payment: ${paymentId}`);
+    // TODO: Send notification to store owner
+    console.log(`📧 TODO: Notify store owner (userId: ${userId})`);
+    
+    // TODO: If digital products, activate them
+    // TODO: Update inventory if needed
+    // TODO: Trigger fulfillment process
+    
+    console.log(`✅ Successfully processed payment: ${paymentId} for order ${orderId}`);
+    
+    // Optional: Log to a separate collection for analytics
+    await admin.firestore()
+      .collection('payment_logs')
+      .add({
+        type: 'payment_success',
+        paymentId,
+        orderId,
+        orderNumber: orderData.orderNumber,
+        userId,
+        storeId,
+        customerEmail: orderData.customerEmail,
+        amount: paymentData.amount,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
   } catch (error) {
     console.error(`Error processing successful payment ${paymentId}:`, error);
   }
 }
 
 // ❌ Handle failed payments
-async function handleFailedPayment(paymentId, userId, storeId, paymentData) {
-  console.log(`Processing failed payment: ${paymentId}, status: ${paymentData.status}`);
+async function handleFailedPayment(paymentId, userId, storeId, orderId, orderData, paymentData) {
+  console.log(`❌ Processing failed payment: ${paymentId} for order ${orderId}, status: ${paymentData.status}`);
   
   try {
-    // Add your business logic here:
-    // - Mark order as failed
-    // - Send failure notification
-    // - Release reserved inventory
-    // - Log for analytics
+    // Order is already updated in the main webhook function
+    // Add any additional business logic here:
     
-    // Example: Update order status
-    if (paymentData.metadata?.orderId) {
-      await admin.firestore()
-        .collection('online_orders')
-        .doc(paymentData.metadata.orderId)
-        .update({
-          paymentStatus: 'failed',
-          failedAt: admin.firestore.FieldValue.serverTimestamp(),
-          failureReason: paymentData.status
-        });
-    }
+    // TODO: Send failure notification to customer
+    console.log(`📧 TODO: Send failure notification to ${orderData.customerEmail}`);
     
-    console.log(`Successfully processed failed payment: ${paymentId}`);
+    // TODO: Release reserved inventory
+    // TODO: Log for analytics
+    
+    console.log(`✅ Successfully processed failed payment: ${paymentId} for order ${orderId}`);
+    
+    // Optional: Log to a separate collection for analytics
+    await admin.firestore()
+      .collection('payment_logs')
+      .add({
+        type: 'payment_failed',
+        paymentId,
+        orderId,
+        orderNumber: orderData.orderNumber,
+        userId,
+        storeId,
+        customerEmail: orderData.customerEmail,
+        status: paymentData.status,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
   } catch (error) {
     console.error(`Error processing failed payment ${paymentId}:`, error);
   }
