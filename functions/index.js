@@ -151,27 +151,23 @@ exports.createMollieOnlinePayment = functions.https.onCall(async (data, context)
         const mollieClient = createMollieClient({ accessToken: accessToken });
 
         // Prepare payment data similar to your terminal function
-        const paymentRequestData = {
+const paymentRequestData = {
             amount: {
                 value: amount.value,
                 currency: amount.currency,
             },
             method: method || "ideal", // Don't specify method if not provided (let customer choose)
             description: description,
-            
             // Partner Organization specific fields
             profileId: profileId,
-            
-            // Application fee (your commission)
+            /*/ Application fee (your commission)
               applicationFee: applicationFee ? {
               amount: applicationFee.amount, // Pass the amount object directly
               description: applicationFee.description
-              } : undefined,
-            
+              } : undefined, */
             // URLs
             redirectUrl: redirectUrl,
             webhookUrl: webhookUrl,
-            
             // Metadata for webhook and tracing
             metadata: {
                 ...metadata,
@@ -179,14 +175,16 @@ exports.createMollieOnlinePayment = functions.https.onCall(async (data, context)
                 createdBy: 'online-store-function'
             }
         };
-
         console.log('Payment request data:', JSON.stringify(paymentRequestData, null, 2));
-
         // Create payment with the data from frontend
         const payment = await mollieClient.payments.create(paymentRequestData);
-        
-        console.log('Payment created successfully:', payment.id);
-
+        // FIX 1: Add collection name and parentheses after .collection()
+        await admin.firestore()
+          .collection('online_orders') // Assuming 'online_orders' is the correct collection name
+          .doc(orderId)
+          .update({molliePaymentId: payment.id});
+        // FIX 2: Use template literals correctly with backticks
+        console.log(`Order ${orderId} updated with payment ID: ${payment.id}`);
         // --- 4. RETURN THE PAYMENT RESPONSE ---
         return {
             payment: {
@@ -202,23 +200,20 @@ exports.createMollieOnlinePayment = functions.https.onCall(async (data, context)
                 }
             }
         };
-
     } catch (error) {
         console.error("Mollie Online Payment Creation Error:", error);
-        
         // Handle Mollie API errors
         if (error.code || error.status) {
             throw error;
         }
-        
         // Handle Mollie client errors
         if (error.message && error.message.includes('Mollie')) {
             throw new functions.https.HttpsError('invalid-argument', error.message);
         }
-        
         throw new functions.https.HttpsError('internal', 'An unexpected error occurred during payment creation.');
     }
 });
+
 
 exports.createOrder = functions.https.onRequest(async (req, res) => {
   const origin = req.get("Origin") || "";
@@ -550,7 +545,7 @@ exports.mollieWebhook = functions.https.onRequest(async (req, res) => {
     // 🔍 Find the order by searching for the payment ID in metadata
     const ordersSnapshot = await admin.firestore()
       .collection('online_orders')
-      .where('metadata.molliePaymentId', '==', paymentId)
+      .where('molliePaymentId', '==', paymentId)
       .limit(1)
       .get();
 
@@ -616,7 +611,7 @@ exports.mollieWebhook = functions.https.onRequest(async (req, res) => {
         status: updatedPayment.status,
         amount: updatedPayment.amount,
         method: updatedPayment.method,
-        paidAt: updatedPayment.paidAt,
+        paidAt: updatedPayment.paidAt ?? null,
         webhookReceivedAt: new Date().toISOString()
       },
       updatedAt: admin.firestore.FieldValue.serverTimestamp()

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
 
 type OrderData = {
@@ -9,7 +9,7 @@ type OrderData = {
   total?: number;
   currency?: string;
   customerEmail?: string;
-  paymentStatus?: 'loading' | 'paid' | 'failed' | 'canceled' | 'expired' | 'pending' | string;
+  paymentStatus?: 'loading' | 'paid' | 'failed' | 'canceled' | 'expired' | 'pending' | 'error' | string;
   metadata?: {
     failureReason?: string;
   };
@@ -17,36 +17,51 @@ type OrderData = {
 };
 
 export default function PaymentReturnPage() {
-  const [status, setStatus] = useState<'loading' | 'paid' | 'failed' | 'canceled' | 'expired' | 'pending' | string>('loading');
+  const [status, setStatus] = useState<'loading' | 'paid' | 'failed' | 'canceled' | 'expired' | 'pending' | 'error' | string>('loading');
   const [orderData, setOrderData] = useState<OrderData | null>(null);
+  const isMountedRef = useRef(true);
 
-  useEffect(() => {
-    checkPaymentStatus();
-  }, []);
-
-  const checkPaymentStatus = async () => {
+  const checkPaymentStatus = useCallback(async () => {
     try {
-      // Get orderId from URL parameters
       const urlParams = new URLSearchParams(window.location.search);
       const orderId = urlParams.get('orderId');
 
       if (!orderId) {
-        setStatus('error');
+        if (isMountedRef.current) {
+          setStatus('error');
+        }
         return;
       }
 
-      // Fetch via API route
-      const response = await fetch(`/api/orders/${orderId}`);
+      const response = await fetch(`/api/store/orders/${orderId}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const order: OrderData = await response.json();
 
-      setOrderData(order);
-      setStatus(order.paymentStatus || 'error');
+      if (isMountedRef.current) {
+        setOrderData(order);
+        setStatus(order.paymentStatus || 'error');
+      }
 
     } catch (error) {
       console.error('Error checking payment status:', error);
-      setStatus('error');
+      if (isMountedRef.current) {
+        setStatus('error');
+      }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    checkPaymentStatus();
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [checkPaymentStatus]);
 
   const renderContent = () => {
     switch (status) {
