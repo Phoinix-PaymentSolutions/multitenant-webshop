@@ -263,6 +263,9 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
     const orderPayload = {
       // Basic order info
       storeId: store.id,
+      storeAddress: store.address,
+      storePostalCode: store.postalCode,
+      storeCity: store.city,
       
       // Customer information
   customer: {

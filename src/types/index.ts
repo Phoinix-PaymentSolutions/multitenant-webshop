@@ -29,6 +29,7 @@ export interface Store {
     email?: string;
     phone?: string;
     address?: string;
+    postalCode?: string;
   };
 }
 

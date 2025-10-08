@@ -160,11 +160,11 @@ const paymentRequestData = {
             description: description,
             // Partner Organization specific fields
             profileId: profileId,
-            /*/ Application fee (your commission)
+            // Application fee (your commission)
               applicationFee: applicationFee ? {
               amount: applicationFee.amount, // Pass the amount object directly
               description: applicationFee.description
-              } : undefined, */
+              } : undefined,
             // URLs
             redirectUrl: redirectUrl,
             webhookUrl: webhookUrl,
@@ -376,7 +376,11 @@ if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost))
         createdVia: "createOrder_function_v1"
       },
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      isAccepted: false,
+      storeAddress: string,
+      storePostalCode: string,
+      storeCity: string
     };
 
     // Save order to Firestore
