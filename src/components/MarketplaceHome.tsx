@@ -6,6 +6,7 @@ import { ChevronRightIcon, SearchIcon, ShoppingCartIcon, ChevronLeftIcon } from 
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import '@/lib/appcheck';
+import Image from 'next/image';
 
 interface Store {
   id: string;
@@ -118,16 +119,19 @@ export default function MarketplaceHome() {
       </style>
       
       <div className="min-h-screen bg-orange-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
-            <h1 className="text-6xl md:text-8xl font-extrabold text-green-500 mb-4">
-              <span className="text-orange-600">Maal</span>-Tijd
-            </h1>
-            <p className="text-xl text-gray-600 mb-12 max-w-3xl mx-auto">
-              Discover your next favorite meal!
-            </p>
+            <div className="flex justify-center mb-0">
+            <Image
+            src="/logo.png"
+            alt="Maal-Tijd Logo"
+            width={200}
+            height={50}
+            priority
+            className="w-auto h-auto max-w-md"
+           />
           </div>
-
+          </div>
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-6xl mx-auto w-full">
             <h2 className="text-3xl font-bold mb-8 text-teal-800 text-center">🍽️ Discover Your Favourite Restaurants</h2>
             
