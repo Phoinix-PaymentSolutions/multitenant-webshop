@@ -245,7 +245,10 @@ exports.createOrder = functions.https.onRequest(async (req, res) => {
       items, 
       currency = "EUR", 
       tax = 0, 
-      discount = 0, 
+      discount = 0,
+      paymentStatus,
+      paymentMethod,
+      serviceCost: incomingServiceCost = "0", 
       shippingCost = 0, 
       metadata = {} 
     } = req.body;
@@ -328,6 +331,8 @@ if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost))
     const discountAmount = Math.max(0, parseFloat(discount) || 0);
     const shippingAmount = Math.max(0, parseFloat(shippingCost) || 0);
     const total = Math.max(0, subtotal + taxAmount + shippingAmount - discountAmount);
+    const numericServiceCost = Math.max(0, parseFloat(incomingServiceCost) || 0);
+
 
     // Validate total isn't suspiciously low
     if (total < 0.01) {
@@ -360,11 +365,13 @@ if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost))
       subtotal: subtotal.toFixed(2),
       tax: taxAmount.toFixed(2),
       discount: discountAmount.toFixed(2),
+      serviceCost: numericServiceCost.toFixed(2),
       shippingCost: shippingAmount.toFixed(2),
       total: total.toFixed(2),
+      paymentMethod: paymentMethod,
       currency: currency.toUpperCase(),
       orderStatus: "pending",
-      paymentStatus: "pending",
+      paymentStatus: paymentStatus || "pending",
       billingAddress: customer.billingAddress || null,
       shippingAddress: customer.shippingAddress || null,
       metadata: {
@@ -378,9 +385,9 @@ if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost))
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       isAccepted: false,
-      storeAddress: string,
-      storePostalCode: string,
-      storeCity: string
+      storeAddress: storeData.address,
+      storePostalCode: storeData.postalCode,
+      storeCity: storeData.City
     };
 
     // Save order to Firestore

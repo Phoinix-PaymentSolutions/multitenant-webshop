@@ -6,6 +6,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { checkDeliveryAvailability, isValidDutchPostalCode, cleanPostalCode } from '@/lib/deliveryZones';
 import {
   ShoppingCartIcon,
+  CreditCardIcon,
+  DollarSignIcon,
   PlusIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -25,6 +27,7 @@ import Image from 'next/image';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '@/lib/firebase';
 import { addDoc, collection, serverTimestamp, } from 'firebase/firestore';
+import { firestore } from 'firebase-admin';
 
 
 // Utility function for debouncing
@@ -121,6 +124,7 @@ interface UpdatedStore {
   address?: string;
   postalCode?: string;
   city?: string;
+  isServiceCost?: Boolean;
 }
 
 interface UpdatedProduct {
@@ -165,6 +169,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
 
   // New state for delivery validation
   const [deliveryOption, setDeliveryOption] = useState<'delivery' | 'takeaway'>('delivery');
+  const [paymentOption, setPaymentOption] = useState<'card' | 'cash'>('card'); // ADDED: Payment method state
   const [deliveryAvailable, setDeliveryAvailable] = useState<boolean | null>(null);
   const [deliveryInfo, setDeliveryInfo] = useState<{
     deliveryFee: number;
@@ -242,6 +247,9 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
 
   const currentDeliveryFee = calculateDeliveryFee();
 
+  const serviceCostDisplay = paymentOption === 'card' && store.isServiceCost ? 0.32 : 0;
+  const finalTotalDisplay = cartTotal + currentDeliveryFee + serviceCostDisplay;
+
   const handleFormSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
 
@@ -256,8 +264,9 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
     return;
   }
 
-  const totalAmount = cartTotal + currentDeliveryFee;
-
+  const baseTotal = cartTotal + currentDeliveryFee;
+  const serviceCost = paymentOption === 'card' && store.isServiceCost ? 0.32 : 0; 
+  const totalAmount = baseTotal + serviceCost; // Final total for online payment
  try {
   // STEP 1: PREPARE DATA AND CALL THE BACKEND TO CREATE THE ORDER
     const orderPayload = {
@@ -295,12 +304,15 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
       tax: "0.00",
       discount: "0.00",
       shippingCost: currentDeliveryFee.toFixed(2),
+      serviceCost: serviceCost.toFixed(2),
       total: totalAmount.toFixed(2),
       currency: 'EUR',
       // Order status
+      PaymentMethod: paymentOption,
       orderStatus: 'pending',
-      paymentStatus: 'pending',
-      
+        paymentStatus: paymentOption === 'cash' 
+    ? (deliveryOption === 'delivery' ? 'cash_on_delivery' : 'cash_on_pickup') 
+    : 'pending',
       // Addresses (if delivery)
       billingAddress: deliveryOption === 'delivery' ? 
         `${formData.address} ${formData.houseNumber}, ${cleanPostalCode(formData.postalCode)}` : null,
@@ -313,7 +325,8 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
         orderType: deliveryOption,
         customerNotes: formData.notes || null,
         ...(deliveryOption === 'delivery' && deliveryInfo && {
-          estimatedDeliveryTime: deliveryInfo.estimatedTime
+          estimatedDeliveryTime: deliveryInfo.estimatedTime,
+        paymentOption: paymentOption,
         })
       },
       
@@ -341,6 +354,11 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
 
     const {orderId, total} = await orderResponse.json();
     console.log(`Order created with ID via backend: With a total of €`, total, orderId);
+
+    if (paymentOption == 'cash') { 
+      clearCart();
+      window.location.href = `${window.location.origin}/payment-return?orderId=${orderId}`;
+    }
 
   // STEP 2: CREATE PAYMENT WITH REAL ORDER ID
     const functions = getFunctions(app);
@@ -385,25 +403,28 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
     }
   }
 };
-  return (
-    <div className="max-w-3xl mx-auto p-6 sm:p-8 md:p-12">
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 sm:p-8 md:p-10 mb-8">
+    return (
+    // MODERNIZATION: Cleaner wrapper with better shadow
+    <div className="max-w-3xl mx-auto p-4 sm:p-6 md:p-8">
+      <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 sm:p-8 md:p-10 mb-8">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-900">Checkout</h2>
-          <Button onClick={onBackToCart} variant="ghost" size="sm">
+          <h2 className="text-3xl font-extrabold text-gray-900">Finalize Order</h2>
+          <Button onClick={onBackToCart} variant="ghost" size="sm" className="text-blue-600 hover:bg-blue-50">
             Back to Cart
           </Button>
         </div>
         
-        <form onSubmit={handleFormSubmit} className="space-y-6">
-          {/* Delivery Option Selection */}
+        <form onSubmit={handleFormSubmit} className="space-y-8">
+          
+          {/* Order Type Selection - SECTION 1 */}
           <div>
-            <h3 className="text-xl font-semibold mb-3">Order Type</h3>
+            <h3 className="text-xl font-bold mb-4 text-gray-800">1. Order Type</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <label className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-colors ${
+              {/* Delivery Option */}
+              <label className={`flex items-center p-4 border-2 rounded-xl cursor-pointer transition-colors ${
                 deliveryOption === 'delivery' 
-                  ? 'border-blue-500 bg-blue-50' 
-                  : 'border-gray-200 hover:border-gray-300'
+                  ? 'border-blue-600 bg-blue-50' 
+                  : 'border-gray-200 hover:border-blue-100'
               }`}>
                 <input
                   type="radio"
@@ -411,10 +432,10 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
                   value="delivery"
                   checked={deliveryOption === 'delivery'}
                   onChange={(e) => setDeliveryOption(e.target.value as 'delivery' | 'takeaway')}
-                  className="mr-3"
+                  className="mr-3 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                 />
                 <div>
-                  <div className="font-medium">Delivery</div>
+                  <div className="font-semibold text-gray-900">Delivery</div>
                   <div className="text-sm text-gray-500">
                     {deliveryInfo ? (
                       <>
@@ -430,10 +451,11 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
                 </div>
               </label>
               
-              <label className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-colors ${
+              {/* Takeaway Option */}
+              <label className={`flex items-center p-4 border-2 rounded-xl cursor-pointer transition-colors ${
                 deliveryOption === 'takeaway' 
-                  ? 'border-blue-500 bg-blue-50' 
-                  : 'border-gray-200 hover:border-gray-300'
+                  ? 'border-blue-600 bg-blue-50' 
+                  : 'border-gray-200 hover:border-blue-100'
               }`}>
                 <input
                   type="radio"
@@ -441,19 +463,19 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
                   value="takeaway"
                   checked={deliveryOption === 'takeaway'}
                   onChange={(e) => setDeliveryOption(e.target.value as 'delivery' | 'takeaway')}
-                  className="mr-3"
+                  className="mr-3 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                 />
                 <div>
-                  <div className="font-medium">Takeaway</div>
+                  <div className="font-semibold text-gray-900">Takeaway</div>
                   <div className="text-sm text-gray-500">Pick up at store - Free</div>
                 </div>
               </label>
             </div>
           </div>
-
-          {/* Contact Information */}
+          
+          {/* Contact Information - SECTION 2 (Re-added) */}
           <div>
-            <h3 className="text-xl font-semibold mb-3">Contact Information</h3>
+            <h3 className="text-xl font-bold mb-4 text-gray-800">2. Contact Information</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">First Name</label>
@@ -464,7 +486,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
                   value={formData.firstName} 
                   onChange={handleChange} 
                   required 
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" 
+                  className="mt-1 block w-full rounded-xl border-0 bg-gray-100 p-3 text-gray-900 shadow-inner focus:ring-2 focus:ring-blue-500 transition duration-150"
                 />
               </div>
               <div>
@@ -476,7 +498,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
                   value={formData.lastName} 
                   onChange={handleChange} 
                   required 
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" 
+                  className="mt-1 block w-full rounded-xl border-0 bg-gray-100 p-3 text-gray-900 shadow-inner focus:ring-2 focus:ring-blue-500 transition duration-150"
                 />
               </div>
               <div>
@@ -488,7 +510,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
                   value={formData.email} 
                   onChange={handleChange} 
                   required 
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" 
+                  className="mt-1 block w-full rounded-xl border-0 bg-gray-100 p-3 text-gray-900 shadow-inner focus:ring-2 focus:ring-blue-500 transition duration-150"
                 />
               </div>
               <div>
@@ -500,17 +522,16 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
                   value={formData.phoneNumber} 
                   onChange={handleChange} 
                   required 
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" 
+                  className="mt-1 block w-full rounded-xl border-0 bg-gray-100 p-3 text-gray-900 shadow-inner focus:ring-2 focus:ring-blue-500 transition duration-150"
                 />
               </div>
             </div>
           </div>
 
-          {/* Delivery Information - Only show if delivery is selected */}
+          {/* Delivery Information - SECTION 3 (Re-added) */}
           {deliveryOption === 'delivery' && (
             <div>
-              <h3 className="text-xl font-semibold mb-3">Delivery Information</h3>
-              
+              <h3 className="text-xl font-bold mb-4 text-gray-800">3. Delivery Information</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
                   <label htmlFor="address" className="block text-sm font-medium text-gray-700">Street Address</label>
@@ -521,7 +542,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
                     value={formData.address}
                     onChange={handleChange}
                     required={deliveryOption === 'delivery'}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    className="mt-1 block w-full rounded-xl border-0 bg-gray-100 p-3 text-gray-900 shadow-inner focus:ring-2 focus:ring-blue-500 transition duration-150"
                   />
                 </div>
 
@@ -534,7 +555,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
                     value={formData.houseNumber}
                     onChange={handleChange}
                     required={deliveryOption === 'delivery'}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    className="mt-1 block w-full rounded-xl border-0 bg-gray-100 p-3 text-gray-900 shadow-inner focus:ring-2 focus:ring-blue-500 transition duration-150"
                   />
                 </div>
 
@@ -551,7 +572,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
                     onChange={handleChange}
                     required={deliveryOption === 'delivery'}
                     placeholder="1234AB"
-                    className={`mt-1 block w-full rounded-md shadow-sm focus:ring-blue-500 ${
+                    className={`className="mt-1 block w-full rounded-xl border-0 bg-gray-100 p-3 text-gray-900 shadow-inner focus:ring-2 focus:ring-blue-500 transition duration-150" ${
                       deliveryAvailable === false 
                         ? 'border-red-300 focus:border-red-500' 
                         : deliveryAvailable === true 
@@ -573,9 +594,62 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
             </div>
           )}
 
+          {/* Payment Option Selection - SECTION 4 */}
+          <div>
+            <h3 className="text-xl font-bold mb-4 text-gray-800">
+               {deliveryOption === 'delivery' ? '4. Payment Method' : '3. Payment Method'}
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Card Payment Option */}
+              <label className={`flex items-center p-4 border-2 rounded-xl cursor-pointer transition-colors ${
+                paymentOption === 'card'
+                  ? 'border-blue-600 bg-blue-50'
+                  : 'border-gray-200 hover:border-blue-100'
+              }`}>
+                <input
+                  type="radio"
+                  name="paymentOption"
+                  value="card"
+                  checked={paymentOption === 'card'}
+                  onChange={() => setPaymentOption('card')}
+                  className="mr-3 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                />
+                <div>
+                  <div className="font-semibold text-gray-900">Online Payment (Card/iDeal)</div>
+                  {/* Conditional Text */}
+                  <div className="text-sm text-gray-500">
+                     Pay securely now. {store.isServiceCost ? 'Includes €0.32 service cost.' : ''}
+                  </div>
+                </div>
+              </label>
+
+              {/* Cash Payment Option */}
+              <label className={`flex items-center p-4 border-2 rounded-xl cursor-pointer transition-colors ${
+                paymentOption === 'cash'
+                  ? 'border-blue-600 bg-blue-50'
+                  : 'border-gray-200 hover:border-blue-100'
+              }`}>
+                <input
+                  type="radio"
+                  name="paymentOption"
+                  value="cash"
+                  checked={paymentOption === 'cash'}
+                  onChange={() => setPaymentOption('cash')}
+                  className="mr-3 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                />
+                <div>
+                  <div className="font-semibold text-gray-900">Cash on {deliveryOption === 'delivery' ? 'Delivery' : 'Pickup'}</div>
+                  <div className="text-sm text-gray-500">Pay when you receive your order.</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
           {/* Additional Notes */}
           <div>
-            <h3 className="text-xl font-semibold mb-3">Notes</h3>
+            <h3 className="text-xl font-bold mb-4 text-gray-800">
+               {deliveryOption === 'delivery' ? '5. Notes' : '4. Notes'}
+            </h3>
             <div>
               <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
                 {deliveryOption === 'delivery' ? 'Delivery' : 'Pickup'} Notes (optional)
@@ -586,69 +660,90 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
                 rows={3} 
                 value={formData.notes} 
                 onChange={handleChange} 
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                className="mt-1 block w-full rounded-xl border-0 bg-gray-100 p-3 text-gray-900 shadow-inner focus:ring-2 focus:ring-blue-500 transition duration-150"
               />
             </div>
           </div>
 
-          {/* Total Summary */}
-       <div className="bg-gray-50 rounded-lg p-4">
-  <div className="space-y-2">
-    <div className="flex justify-between">
-      <span>Subtotal:</span>
-      <span>€{cartTotal.toFixed(2)}</span>
-    </div>
 
-    {/* NEW CODE: Display Pickup Address in Summary */}
-    {deliveryOption === 'takeaway' && store && (
-      <div className="flex flex-col text-sm text-gray-700 pt-1 border-t border-dashed mt-1">
-        <span className="font-semibold">Pickup Location:</span>
-        <span className="text-sm">{store.address}</span>
-        <span className="text-sm">{store.postalCode} {store.city}</span>
-      </div>
-    )}
-    {/* END NEW CODE */}
+          {/* Total Summary - SECTION 6/5 */}
+          <div className="bg-gray-50 rounded-xl p-6 border-t border-gray-200">
+            <h3 className="text-2xl font-bold mb-4 text-gray-800">Order Summary</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span>Subtotal:</span>
+                <span>€{cartTotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>{deliveryOption === 'delivery' ? 'Delivery Fee:' : 'Pickup:'}</span>
+                <span>
+                  {deliveryOption === 'takeaway' 
+                    ? 'Free' 
+                    : currentDeliveryFee === 0
+                      ? 'Free'
+                      : `€${currentDeliveryFee.toFixed(2)}`
+                  }
+                </span>
+              </div>
+              
+              {/* Conditional Service Cost Line Item */}
+              {store.isServiceCost && paymentOption === 'card' && (
+                <div className="flex justify-between text-base text-blue-700">
+                  <span className="font-semibold flex items-center">
+                     Online Payment Fee:
+                  </span>
+                  <span className="font-medium">€{serviceCostDisplay.toFixed(2)}</span>
+                </div>
+              )}
 
-    <div className="flex justify-between">
-      <span>{deliveryOption === 'delivery' ? 'Delivery Fee:' : 'Pickup:'}</span>
-      <span>
-        {deliveryOption === 'takeaway' 
-          ? 'Free' 
-          : currentDeliveryFee === 0
-            ? 'Free'
-            : `€${currentDeliveryFee.toFixed(2)}`
-        }
-      </span>
-    </div>
-    {deliveryOption === 'delivery' && deliveryInfo?.freeDeliveryThreshold && cartTotal < deliveryInfo.freeDeliveryThreshold && currentDeliveryFee > 0 && (
-      <div className="text-sm text-amber-600 bg-amber-50 p-2 rounded">
-        Add €{(deliveryInfo.freeDeliveryThreshold - cartTotal).toFixed(2)} more for free delivery!
-      </div>
-    )}
-    <hr />
-    <div className="flex justify-between text-lg font-semibold">
-      <span>Total:</span>
-      <span>€{(cartTotal + currentDeliveryFee).toFixed(2)}</span>
-    </div>
-  </div>
-</div>
+              {deliveryOption === 'delivery' && deliveryInfo?.freeDeliveryThreshold && cartTotal < deliveryInfo.freeDeliveryThreshold && currentDeliveryFee > 0 && (
+                <div className="text-sm text-amber-600 bg-amber-50 p-2 rounded">
+                  Add €{(deliveryInfo.freeDeliveryThreshold - cartTotal).toFixed(2)} more for free delivery!
+                </div>
+              )}
+
+              <hr className="border-gray-300 my-4" />
+              
+              {/* Final Total */}
+              <div className="flex justify-between text-xl font-extrabold text-gray-900">
+                <span>Total:</span>
+                <span>€{finalTotalDisplay.toFixed(2)}</span>
+              </div>
+              
+              {deliveryOption === 'takeaway' && store && (
+                <div className="flex flex-col text-sm text-gray-700 pt-3 border-t border-dashed mt-3">
+                  <span className="font-semibold">Pickup Location:</span>
+                  <span className="text-sm">{store.address}</span>
+                  <span className="text-sm">{store.postalCode} {store.city}</span>
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* Submit Button */}
           <Button 
-  type="submit" 
-  brandColor={store.brandColor} 
-  size="lg" 
-  className="w-full"
-  disabled={!!(
-    (deliveryOption === 'delivery' && deliveryAvailable !== true) ||
-    (deliveryOption === 'delivery' && deliveryInfo && cartTotal < deliveryInfo.minimumOrder)
-  )}
->
-  {deliveryOption === 'delivery' && deliveryInfo && cartTotal < deliveryInfo.minimumOrder
-    ? `Minimum order €${deliveryInfo.minimumOrder.toFixed(2)} for delivery`
-    : `Place ${deliveryOption === 'delivery' ? 'Delivery' : 'Takeaway'} Order`
-  }
-</Button>
+            type="submit" 
+            brandColor={store.brandColor} 
+            size="lg" 
+            className="w-full text-lg shadow-lg hover:shadow-xl transition duration-200"
+            disabled={!!(
+              (deliveryOption === 'delivery' && deliveryAvailable !== true) ||
+              (deliveryOption === 'delivery' && deliveryInfo && cartTotal < deliveryInfo.minimumOrder)
+            )}
+          >
+            {deliveryOption === 'delivery' && deliveryInfo && cartTotal < deliveryInfo.minimumOrder
+              ? `Minimum order €${deliveryInfo.minimumOrder.toFixed(2)} for delivery`
+              : paymentOption === 'cash'
+                ? `Place Order & Pay Cash on ${deliveryOption === 'delivery' ? 'Delivery' : 'Pickup'}`
+                : `Proceed to Online Payment (€${finalTotalDisplay.toFixed(2)})`
+            }
+          </Button>
+          
+          {paymentOption === 'card' && (
+            <p className="text-xs text-gray-500 text-center">
+              You will be redirected to our secure payment provider to complete your order.
+            </p>
+          )}
         </form>
       </div>
     </div>
