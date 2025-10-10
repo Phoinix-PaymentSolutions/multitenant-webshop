@@ -247,9 +247,9 @@ exports.createOrder = functions.https.onRequest(async (req, res) => {
       tax = 0, 
       discount = 0,
       paymentStatus,
-      paymentMethod,
       serviceCost: incomingServiceCost = "0", 
       shippingCost = 0, 
+      pickupTime,
       metadata = {} 
     } = req.body;
 
@@ -349,6 +349,7 @@ if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost))
       storeId,
       orderNumber,
       ownerId,
+      pickupTime: pickupTime,
       customerEmail: customer.email,
       customerName: customer.name || customer.email,
       customerPhone: customer.phone || null,
@@ -368,7 +369,6 @@ if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost))
       serviceCost: numericServiceCost.toFixed(2),
       shippingCost: shippingAmount.toFixed(2),
       total: total.toFixed(2),
-      paymentMethod: paymentMethod,
       currency: currency.toUpperCase(),
       orderStatus: "pending",
       paymentStatus: paymentStatus || "pending",

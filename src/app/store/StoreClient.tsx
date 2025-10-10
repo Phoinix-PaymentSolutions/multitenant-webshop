@@ -1,6 +1,5 @@
 'use client';
 
-import { getProductExtras, } from '@/lib/database';
 import '@/lib/appcheck'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { checkDeliveryAvailability, isValidDutchPostalCode, cleanPostalCode } from '@/lib/deliveryZones';
@@ -27,7 +26,7 @@ import Image from 'next/image';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '@/lib/firebase';
 import { addDoc, collection, serverTimestamp, } from 'firebase/firestore';
-import { firestore } from 'firebase-admin';
+
 
 
 // Utility function for debouncing
@@ -155,7 +154,9 @@ interface MolliePaymentResponse {
   };
 }
 
-const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, clearCart }: CheckoutPageProps) => {
+
+
+const CheckoutPage = ({ onBackToCart, cartTotal, store, cart, clearCart }: CheckoutPageProps) => {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -165,6 +166,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
     email: '',
     notes: '',
     houseNumber: '',
+    pickupTime: '',
   });
 
   // New state for delivery validation
@@ -190,65 +192,155 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
     }
   };
 
-  const checkDeliveryForPostalCode = async (postalCode: string) => {
-    const cleanedCode = cleanPostalCode(postalCode);
-    
-    if (!cleanedCode || cleanedCode.length < 6) {
-      setDeliveryAvailable(null);
-      setDeliveryInfo(null);
-      setDeliveryError(null);
-      return;
-    }
+  // Add these console.logs to your checkDeliveryForPostalCode function in CheckoutPage:
 
-    if (!isValidDutchPostalCode(cleanedCode)) {
-      setDeliveryAvailable(false);
-      setDeliveryError('Please enter a valid Dutch postal code (e.g., 1234AB)');
-      return;
-    }
-
-    setIsCheckingDelivery(true);
+const checkDeliveryForPostalCode = async (postalCode: string) => {
+  const cleanedCode = cleanPostalCode(postalCode);
+  
+  console.log('=== CHECKING DELIVERY ===');
+  console.log('Raw postal code:', postalCode);
+  console.log('Cleaned postal code:', cleanedCode);
+  
+  if (!cleanedCode || cleanedCode.length < 6) {
+    console.log('Postal code too short');
+    setDeliveryAvailable(null);
+    setDeliveryInfo(null);
     setDeliveryError(null);
+    return;
+  }
 
-    try {
-      const result = await checkDeliveryAvailability(store.id, cleanedCode);
-      
-      if (result.available) {
-        setDeliveryAvailable(true);
-        setDeliveryInfo({
-          deliveryFee: result.deliveryFee || 0,
-          minimumOrder: result.minimumOrder || 0,
-          estimatedTime: result.estimatedTime || '30-45 min',
-          freeDeliveryThreshold: result.freeDeliveryThreshold
-        });
-      } else {
-        setDeliveryAvailable(false);
-        setDeliveryError('Delivery not available to this postal code. Takeaway is still available!'); 
-      }
-    } catch (error) {
-      console.error('Error checking delivery:', error);
-      setDeliveryError('Error checking delivery availability. Please try again.');
+  if (!isValidDutchPostalCode(cleanedCode)) {
+    console.log('Invalid Dutch postal code format');
+    setDeliveryAvailable(false);
+    setDeliveryError('Please enter a valid Dutch postal code (e.g., 1234AB)');
+    return;
+  }
+
+  setIsCheckingDelivery(true);
+  setDeliveryError(null);
+
+  try {
+    console.log('Calling checkDeliveryAvailability with:', store.id, cleanedCode);
+    const result = await checkDeliveryAvailability(store.id, cleanedCode);
+    
+    console.log('Delivery check result:', result);
+    
+    if (result.available) {
+      console.log('✅ Delivery available!');
+      setDeliveryAvailable(true);
+      setDeliveryInfo({
+        deliveryFee: result.deliveryFee || 0,
+        minimumOrder: result.minimumOrder || 0,
+        estimatedTime: result.estimatedTime || '30-45 min',
+        freeDeliveryThreshold: result.freeDeliveryThreshold
+      });
+    } else {
+      console.log('❌ Delivery not available');
       setDeliveryAvailable(false);
-    } finally {
-      setIsCheckingDelivery(false);
+      setDeliveryError('Delivery not available to this postal code. Takeaway is still available!'); 
     }
-  };
+  } catch (error) {
+    console.error('Error checking delivery:', error);
+    setDeliveryError('Error checking delivery availability. Please try again.');
+    setDeliveryAvailable(false);
+  } finally {
+    setIsCheckingDelivery(false);
+  }
+};
 
-  const calculateDeliveryFee = () => {
-    if (deliveryOption === 'takeaway') return 0;
-    if (!deliveryInfo) return 0;
-    
-    // Check for free delivery threshold
-    if (deliveryInfo.freeDeliveryThreshold && cartTotal >= deliveryInfo.freeDeliveryThreshold) {
-      return 0;
-    }
-    
-    return deliveryInfo.deliveryFee;
-  };
-
+// Also add this to your calculateDeliveryFee function:
+const calculateDeliveryFee = () => {
+  console.log('=== CALCULATING DELIVERY FEE ===');
+  console.log('Delivery option:', deliveryOption);
+  console.log('Cart total:', cartTotal);
+  console.log('Delivery info:', deliveryInfo);
+  
+  if (deliveryOption === 'takeaway') {
+    console.log('Takeaway selected, fee = 0');
+    return 0;
+  }
+  
+  if (!deliveryInfo) {
+    console.log('No delivery info, fee = 0');
+    return 0;
+  }
+  
+  // Check for free delivery threshold
+  if (deliveryInfo.freeDeliveryThreshold && cartTotal >= deliveryInfo.freeDeliveryThreshold) {
+    console.log('Free delivery threshold met!', deliveryInfo.freeDeliveryThreshold);
+    return 0;
+  }
+  
+  console.log('Applying delivery fee:', deliveryInfo.deliveryFee);
+  return deliveryInfo.deliveryFee;
+};
   const currentDeliveryFee = calculateDeliveryFee();
 
   const serviceCostDisplay = paymentOption === 'card' && store.isServiceCost ? 0.32 : 0;
   const finalTotalDisplay = cartTotal + currentDeliveryFee + serviceCostDisplay;
+// 1. Define new state variable and memoized time options
+// The state should be initialized to a valid time format, or 'ASAP'.
+const [pickupTimeOption, setPickupTimeOption] = useState<'ASAP' | 'SCHEDULED'>('ASAP');
+
+// Helper function to generate time slots (every 15 minutes, starting 15 minutes from now)
+const generateTimeOptions = (interval: number = 15) => {
+  const now = new Date();
+  
+  // Calculate start time: 15 minutes from now, rounded up to the nearest interval
+  const startMs = now.getTime() + 15 * 60000; 
+  let startTime = new Date(startMs);
+  
+  // Round up the minute to the nearest interval (e.g., 11:07 becomes 11:15)
+  const minutes = startTime.getMinutes();
+  const remainder = minutes % interval;
+  if (remainder !== 0) {
+      startTime.setMinutes(minutes + (interval - remainder));
+  }
+  startTime.setSeconds(0);
+  startTime.setMilliseconds(0);
+
+  // Set the end of the day limit (23:59)
+  const endOfToday = new Date(now);
+  endOfToday.setHours(23, 59, 0, 0); 
+
+  const options: string[] = [];
+  let currentTime = startTime;
+
+  while (currentTime.getTime() <= endOfToday.getTime()) {
+    // Only add if the slot is still in the future
+    if (currentTime.getTime() > now.getTime()) {
+      const hour = String(currentTime.getHours()).padStart(2, '0');
+      const minute = String(currentTime.getMinutes()).padStart(2, '0');
+      options.push(`${hour}:${minute}`);
+    }
+    
+    currentTime = new Date(currentTime.getTime() + interval * 60000); // Add interval minutes
+  }
+  
+  return options;
+};
+
+// Generate time options using useMemo
+const timeOptions = useMemo(() => generateTimeOptions(), []);
+
+// 2. Dedicated Handlers
+const handleTimeOptionChange = (value: 'ASAP' | 'SCHEDULED') => {
+  setPickupTimeOption(value);
+  setFormData(prev => ({ 
+      ...prev, 
+      // Initialization Fix: If switching to SCHEDULED, set it to the first available slot.
+      // If timeOptions is empty (e.g., store is closed), fall back to 'ASAP'
+      pickupTime: value === 'ASAP' ? 'ASAP' : (timeOptions[0] || 'ASAP')
+  }));
+};
+
+const handleScheduledTimeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    // This handler processes the specific time selection from the dropdown
+    setFormData(prev => ({
+        ...prev,
+        pickupTime: e.target.value
+    }));
+};
 
   const handleFormSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
@@ -308,6 +400,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
       total: totalAmount.toFixed(2),
       currency: 'EUR',
       // Order status
+      pickupTime: deliveryOption === 'takeaway' ? formData.pickupTime : null, 
       PaymentMethod: paymentOption,
       orderStatus: 'pending',
         paymentStatus: paymentOption === 'cash' 
@@ -472,10 +565,77 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
               </label>
             </div>
           </div>
-          
-          {/* Contact Information - SECTION 2 (Re-added) */}
-          <div>
-            <h3 className="text-xl font-bold mb-4 text-gray-800">2. Contact Information</h3>
+           {/* Pickup Time - NEW SECTION 2 (Appears only on Takeaway) */}
+           {deliveryOption === 'takeaway' && (
+            <div>
+              <h3 className="text-xl font-bold mb-4 text-gray-800">2. Pickup Time</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* ASAP Option */}
+                <label className={`flex items-center p-4 border-2 rounded-xl cursor-pointer transition-colors ${
+                  pickupTimeOption === 'ASAP' 
+                    ? 'border-blue-600 bg-blue-50' 
+                    : 'border-gray-200 hover:border-blue-100'
+                }`}>
+                  <input
+                    type="radio"
+                    name="pickupTimeOption"
+                    value="ASAP"
+                    checked={pickupTimeOption === 'ASAP'}
+                    onChange={() => handleTimeOptionChange('ASAP')}
+                    className="mr-3 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                  />
+                  <div>
+                    <div className="font-semibold text-gray-900">ASAP (Estimated 15-25 min)</div>
+                    <div className="text-sm text-gray-500">Fastest available pickup.</div>
+                  </div>
+                </label>
+                
+                {/* Scheduled Time Option */}
+                <label className={`flex items-center p-4 border-2 rounded-xl cursor-pointer transition-colors ${
+                  pickupTimeOption === 'SCHEDULED' 
+                    ? 'border-blue-600 bg-blue-50' 
+                    : 'border-gray-200 hover:border-blue-100'
+                }`}>
+                  <input
+                    type="radio"
+                    name="pickupTimeOption"
+                    value="SCHEDULED"
+                    checked={pickupTimeOption === 'SCHEDULED'}
+                    onChange={() => handleTimeOptionChange('SCHEDULED')}
+                    className="mr-3 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                  />
+                  <div>
+                    <div className="font-semibold text-gray-900">Schedule Pickup</div>
+                    <div className="text-sm text-gray-500">Choose a specific time.</div>
+                  </div>
+                </label>
+              </div>
+              
+              {/* Time Selector Dropdown */}
+              {pickupTimeOption === 'SCHEDULED' && (
+                <div className="mt-4">
+                  <label htmlFor="pickupTime" className="block text-sm font-medium text-gray-700">Select Time</label>
+                  <select
+                    id="pickupTime"
+                    name="pickupTime"
+                    value={formData.pickupTime}
+                    onChange={handleScheduledTimeChange} // Use the new dedicated handler
+                    required
+                    className="mt-1 block w-full rounded-xl border-0 bg-gray-100 p-3 text-gray-900 shadow-inner focus:ring-2 focus:ring-blue-500 transition duration-150"
+                  >
+                    {timeOptions.map(time => (
+                      <option key={time} value={time}>{time}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+          {/* Contact Information - SECTION 2/3 (Re-added) */}
+            <div>
+              <h3 className="text-xl font-bold mb-4 text-gray-800">
+              {deliveryOption === 'takeaway' ? '3. Contact Information' : '2. Contact Information'}
+            </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">First Name</label>
@@ -597,7 +757,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
           {/* Payment Option Selection - SECTION 4 */}
           <div>
             <h3 className="text-xl font-bold mb-4 text-gray-800">
-               {deliveryOption === 'delivery' ? '4. Payment Method' : '3. Payment Method'}
+               4. Payment Method
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Card Payment Option */}
@@ -648,7 +808,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
           {/* Additional Notes */}
           <div>
             <h3 className="text-xl font-bold mb-4 text-gray-800">
-               {deliveryOption === 'delivery' ? '5. Notes' : '4. Notes'}
+               5. Notes
             </h3>
             <div>
               <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
@@ -666,59 +826,62 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
           </div>
 
 
-          {/* Total Summary - SECTION 6/5 */}
-          <div className="bg-gray-50 rounded-xl p-6 border-t border-gray-200">
-            <h3 className="text-2xl font-bold mb-4 text-gray-800">Order Summary</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span>Subtotal:</span>
-                <span>€{cartTotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>{deliveryOption === 'delivery' ? 'Delivery Fee:' : 'Pickup:'}</span>
-                <span>
-                  {deliveryOption === 'takeaway' 
-                    ? 'Free' 
-                    : currentDeliveryFee === 0
-                      ? 'Free'
-                      : `€${currentDeliveryFee.toFixed(2)}`
-                  }
-                </span>
-              </div>
-              
-              {/* Conditional Service Cost Line Item */}
-              {store.isServiceCost && paymentOption === 'card' && (
-                <div className="flex justify-between text-base text-blue-700">
-                  <span className="font-semibold flex items-center">
-                     Online Payment Fee:
-                  </span>
-                  <span className="font-medium">€{serviceCostDisplay.toFixed(2)}</span>
-                </div>
-              )}
+// In your CheckoutPage component, replace the delivery fee display section with this:
 
-              {deliveryOption === 'delivery' && deliveryInfo?.freeDeliveryThreshold && cartTotal < deliveryInfo.freeDeliveryThreshold && currentDeliveryFee > 0 && (
-                <div className="text-sm text-amber-600 bg-amber-50 p-2 rounded">
-                  Add €{(deliveryInfo.freeDeliveryThreshold - cartTotal).toFixed(2)} more for free delivery!
-                </div>
-              )}
+{/* Order Summary - Fixed Delivery Fee Display */}
+<div className="bg-gray-50 rounded-xl p-6 border-t border-gray-200">
+  <h3 className="text-2xl font-bold mb-4 text-gray-800">Order Summary</h3>
+  <div className="space-y-3">
+    <div className="flex justify-between">
+      <span>Subtotal:</span>
+      <span>€{cartTotal.toFixed(2)}</span>
+    </div>
+    <div className="flex justify-between">
+      <span>{deliveryOption === 'delivery' ? 'Delivery Fee:' : 'Pickup:'}</span>
+      <span>
+        {deliveryOption === 'takeaway' 
+          ? 'Free' 
+          : currentDeliveryFee === 0 
+            ? 'Free'
+            : `€${currentDeliveryFee.toFixed(2)}`
+        }
+      </span>
+    </div>
+    
+    {/* Conditional Service Cost Line Item */}
+    {store.isServiceCost && paymentOption === 'card' && (
+      <div className="flex justify-between text-base text-blue-700">
+        <span className="font-semibold flex items-center">
+           Service Fee:
+        </span>
+        <span className="font-medium">€{serviceCostDisplay.toFixed(2)}</span>
+      </div>
+    )}
 
-              <hr className="border-gray-300 my-4" />
-              
-              {/* Final Total */}
-              <div className="flex justify-between text-xl font-extrabold text-gray-900">
-                <span>Total:</span>
-                <span>€{finalTotalDisplay.toFixed(2)}</span>
-              </div>
-              
-              {deliveryOption === 'takeaway' && store && (
-                <div className="flex flex-col text-sm text-gray-700 pt-3 border-t border-dashed mt-3">
-                  <span className="font-semibold">Pickup Location:</span>
-                  <span className="text-sm">{store.address}</span>
-                  <span className="text-sm">{store.postalCode} {store.city}</span>
-                </div>
-              )}
-            </div>
-          </div>
+    {/* Show progress towards free delivery */}
+    {deliveryOption === 'delivery' && deliveryInfo?.freeDeliveryThreshold && cartTotal < deliveryInfo.freeDeliveryThreshold && currentDeliveryFee > 0 && (
+      <div className="text-sm text-amber-600 bg-amber-50 p-2 rounded">
+        Add €{(deliveryInfo.freeDeliveryThreshold - cartTotal).toFixed(2)} more for free delivery!
+      </div>
+    )}
+
+    <hr className="border-gray-300 my-4" />
+    
+    {/* Final Total */}
+    <div className="flex justify-between text-xl font-extrabold text-gray-900">
+      <span>Total:</span>
+      <span>€{finalTotalDisplay.toFixed(2)}</span>
+    </div>
+    
+    {deliveryOption === 'takeaway' && store && (
+      <div className="flex flex-col text-sm text-gray-700 pt-3 border-t border-dashed mt-3">
+        <span className="font-semibold">Pickup Location:</span>
+        <span className="text-sm">{store.address}</span>
+        <span className="text-sm">{store.postalCode} {store.city}</span>
+      </div>
+    )}
+  </div>
+</div>
 
           {/* Submit Button */}
           <Button 
@@ -753,6 +916,7 @@ const CheckoutPage = ({ onBackToCart, cartTotal, finalDeliveryFee, store, cart, 
 // ------------------------------------------------
 // Store Pages
 // ------------------------------------------------
+//ProductCard//
 interface StorePageProps {
   store: UpdatedStore;
   products: UpdatedProduct[];
@@ -770,38 +934,24 @@ interface ProductCardProps {
 
 const ProductCard = ({ product, onAddToCart, brandColor, storeId }: ProductCardProps) => {
   const [expanded, setExpanded] = useState(false);
-  const [extras, setExtras] = useState<Extra[]>([]);
   const [selectedExtras, setSelectedExtras] = useState<Record<string, boolean>>({});
 
-
-  // Fetch extras when the card is expanded
- useEffect(() => {
-    if (expanded) {
-      const fetchExtras = async () => {
-        const response = await fetch(`/api/store/${storeId}/product/${product.id}/extras`);
-        const { extras: fetchedExtras } = await response.json();
-        setExtras(fetchedExtras);
-      };
-      fetchExtras();
-    } else {
-      setExtras([]);
-      setSelectedExtras({});
-    }
-  }, [expanded, product.id, storeId]);
+  // You no longer need to fetch extras — just read them from the product
+  const extras = product.extras || [];
 
   const handleExpandToggle = () => {
     setExpanded(!expanded);
   };
 
-  const handleExtraSelect = (extraId: string) => {
+  const handleExtraSelect = (extraName: string) => {
     setSelectedExtras(prev => ({
       ...prev,
-      [extraId]: !prev[extraId]
+      [extraName]: !prev[extraName],
     }));
   };
 
   const handleAddToCart = () => {
-    const finalExtras = extras.filter(extra => selectedExtras[extra.id]);
+    const finalExtras = extras.filter(extra => selectedExtras[extra.name]);
     onAddToCart(product, finalExtras);
     setExpanded(false); // Collapse after adding to cart
   };
@@ -809,7 +959,7 @@ const ProductCard = ({ product, onAddToCart, brandColor, storeId }: ProductCardP
   const calculateTotal = () => {
     let total = product.onSale && product.salePrice ? product.salePrice : product.price;
     extras.forEach(extra => {
-      if (selectedExtras[extra.id]) {
+      if (selectedExtras[extra.name]) {
         total += extra.price;
       }
     });
@@ -822,7 +972,7 @@ const ProductCard = ({ product, onAddToCart, brandColor, storeId }: ProductCardP
     <div className="group relative bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden transform transition-all hover:scale-[1.02]">
       <div className="relative w-full h-48 sm:h-64 bg-gray-100">
         <Image
-          priority={true}
+          priority
           src={product.imageUrl || 'https://placehold.co/400x400/E5E7EB/9CA3AF?text=Product'}
           alt={product.name}
           width={400}
@@ -839,11 +989,17 @@ const ProductCard = ({ product, onAddToCart, brandColor, storeId }: ProductCardP
         <div className="flex items-center justify-between mt-3">
           {product.onSale ? (
             <div className="flex items-center">
-              <span className="text-xl font-bold text-red-600">€{(product.salePrice || product.price || 0).toFixed(2)}</span>
-              <span className="text-sm text-gray-500 line-through ml-2">€{(product.price || 0).toFixed(2)}</span>
+              <span className="text-xl font-bold text-red-600">
+                €{(product.salePrice || product.price || 0).toFixed(2)}
+              </span>
+              <span className="text-sm text-gray-500 line-through ml-2">
+                €{(product.price || 0).toFixed(2)}
+              </span>
             </div>
           ) : (
-            <span className="text-xl font-bold text-gray-900">€{(product.price || 0).toFixed(2)}</span>
+            <span className="text-xl font-bold text-gray-900">
+              €{(product.price || 0).toFixed(2)}
+            </span>
           )}
           <Button onClick={handleExpandToggle} brandColor={brandColor} size="sm">
             <PlusIcon className="h-5 w-5" />
@@ -856,18 +1012,20 @@ const ProductCard = ({ product, onAddToCart, brandColor, storeId }: ProductCardP
           <h4 className="font-bold text-lg mb-2">Add-ons</h4>
           {extras.length > 0 ? (
             <ul className="space-y-2">
-              {extras.map(extra => (
-                <li key={extra.id} className="flex items-center justify-between">
+              {extras.map((extra, index) => (
+                <li key={index} className="flex items-center justify-between">
                   <label className="flex items-center cursor-pointer text-gray-700">
                     <input
                       type="checkbox"
                       className="form-checkbox h-4 w-4 text-gray-600 rounded-sm"
-                      checked={!!selectedExtras[extra.id]}
-                      onChange={() => handleExtraSelect(extra.id)}
+                      checked={!!selectedExtras[extra.name]}
+                      onChange={() => handleExtraSelect(extra.name)}
                     />
                     <span className="ml-2">{extra.name}</span>
                   </label>
-                  <span className="text-sm font-medium text-gray-900">€{extra.price.toFixed(2)}</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    €{extra.price.toFixed(2)}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -876,7 +1034,9 @@ const ProductCard = ({ product, onAddToCart, brandColor, storeId }: ProductCardP
           )}
           <div className="mt-4 pt-4 border-t border-dashed border-gray-300 flex justify-between items-center">
             <span className="font-bold text-lg text-gray-800">Total:</span>
-            <span className="text-2xl font-bold text-gray-900">€{finalPrice.toFixed(2)}</span>
+            <span className="text-2xl font-bold text-gray-900">
+              €{finalPrice.toFixed(2)}
+            </span>
           </div>
           <Button onClick={handleAddToCart} brandColor={brandColor} className="mt-4 w-full">
             Add to Cart
@@ -1434,10 +1594,44 @@ const updateQuantity = useCallback((itemId: string, newQuantity: number) => {
 // Loading state
 if (isLoading) {
   return (
-    <div className="flex items-center justify-center min-h-screen text-gray-600 p-4 bg-gray-50">
-      <div className="flex flex-col items-center">
-        <div className="w-16 h-16 border-4 border-t-4 border-gray-200 border-t-gray-900 rounded-full animate-spin"></div>
-        <p className="mt-4 text-lg">Loading store...</p>
+    // 1. Full-screen fixed overlay (z-index ensures it covers everything)
+    // Using bg-orange-50 for a friendly, soft background color
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-orange-50">
+      
+      {/* 2. Centered Content Container */}
+      <div className="flex flex-col items-center p-12 text-center">
+        
+        {/* 3. Logo/Image Component */}
+        <div className="flex justify-center mb-6">
+          <div className="w-48 sm:w-64 md:w-80"> {/* ⬅️ ADD THIS CONTAINER */}
+          <Image
+            src="/logo.png"
+            alt="Maal-Tijd Logo"
+            width={250} // Adjusted size for better screen presence
+            height={60}
+            layout='responsive'
+            priority
+          />
+          </div>
+        </div>
+        
+        {/* 4. Welcoming and professional text */}
+        <h1 className="mt-8 text-4xl font-extrabold tracking-tight text-gray-900">
+          Welcome!
+        </h1>
+        
+        {/* 5. Friendly and reassuring message */}
+        <p className="mt-3 text-xl font-medium text-gray-600">
+          Just a moment while we prepare your order experience.
+        </p>
+        
+        {/* 6. Subtle Spinner for technical assurance, colored to match the brand */}
+        <div className={`
+          mt-6 w-8 h-8 
+          border-4 border-t-4 border-gray-200 
+          border-t-orange-600 
+          rounded-full animate-spin
+        `}></div>
       </div>
     </div>
   );
@@ -1446,11 +1640,36 @@ if (isLoading) {
 // Store not found state
 if (!store) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen text-gray-600 p-4 bg-gray-50">
-      <h1 className="text-4xl font-bold mb-4">Store Not Found</h1>
-      <p className="text-lg text-center">
-        We couldn&apos;t find a store at this address. Please check the URL and try again.
-      </p>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-white p-6 sm:p-10">
+      <div className="text-center max-w-lg">
+        
+        {/* Large, Friendly Icon (Optional, but adds warmth) */}
+        <HeartHandshakeIcon className="w-16 h-16 text-orange-600 mx-auto mb-6" aria-hidden="true" />
+        
+        {/* Welcoming Heading */}
+        <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 mb-3">
+          Oops, Store Not Found!
+        </h1>
+        
+        {/* Reassuring and Clear Message */}
+        <p className="text-lg text-gray-700 mb-8">
+          It looks like there might be a typo in the link you followed, or the store is temporarily unavailable. No worries!
+        </p>
+        
+        {/* Call to Action: Friendly Button */}
+        <a 
+          href="https://www.maal-tijd.com" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-xl shadow-lg text-white bg-orange-600 hover:bg-orange-700 transition duration-150"
+        >
+          Go to Maal-Tijd Homepage
+        </a>
+        
+        <p className="mt-4 text-sm text-gray-500">
+          If you received this link from a store, please try contacting them directly.
+        </p>
+      </div>
     </div>
   );
 }
@@ -1673,14 +1892,17 @@ if (!store) {
     <div className="flex-1 min-w-0">
       <p className="font-semibold text-gray-900 truncate">{item.name}</p>
       <p className="text-sm text-gray-500">Base: €{item.basePrice.toFixed(2)}</p>
-      {item.extras.length > 0 && (
-        <div className="text-xs text-gray-400 mt-1">
-          <p className="font-medium">Add-ons:</p>
-          {item.extras.map(extra => (
-            <p key={extra.id} className="truncate">+ {extra.name} (+€{extra.price.toFixed(2)})</p>
-          ))}
-        </div>
-      )}
+{item.extras.length > 0 && (
+  <div className="text-xs text-gray-400 mt-1">
+    <p className="font-medium">Add-ons:</p>
+    {item.extras.map((extra, index) => (
+      <p key={extra.name || index} className="truncate">
+        + {extra.name} (+€{extra.price.toFixed(2)})
+      </p>
+    ))}
+  </div>
+)}
+
       <p className="text-sm font-medium text-gray-700 mt-1">
         Item total: €{item.price.toFixed(2)}
       </p>
