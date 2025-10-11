@@ -63,6 +63,7 @@ export interface Product {
   updatedAt: Date;
   isSale?: boolean;
   salePrice?: number;
+  extras?: Extra[]
 }
 
 export interface CartItem extends Product {

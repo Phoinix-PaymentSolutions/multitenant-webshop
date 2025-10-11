@@ -245,8 +245,11 @@ exports.createOrder = functions.https.onRequest(async (req, res) => {
       items, 
       currency = "EUR", 
       tax = 0, 
-      discount = 0, 
+      discount = 0,
+      paymentStatus,
+      serviceCost: incomingServiceCost = "0", 
       shippingCost = 0, 
+      pickupTime,
       metadata = {} 
     } = req.body;
 
@@ -328,6 +331,8 @@ if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost))
     const discountAmount = Math.max(0, parseFloat(discount) || 0);
     const shippingAmount = Math.max(0, parseFloat(shippingCost) || 0);
     const total = Math.max(0, subtotal + taxAmount + shippingAmount - discountAmount);
+    const numericServiceCost = Math.max(0, parseFloat(incomingServiceCost) || 0);
+
 
     // Validate total isn't suspiciously low
     if (total < 0.01) {
@@ -344,6 +349,7 @@ if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost))
       storeId,
       orderNumber,
       ownerId,
+      pickupTime: pickupTime,
       customerEmail: customer.email,
       customerName: customer.name || customer.email,
       customerPhone: customer.phone || null,
@@ -355,16 +361,32 @@ if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost))
         imageUrl: item.imageUrl || null,
         category: item.category || null,
         sku: item.sku || null,
-        subtotal: (parseFloat(item.price) * parseInt(item.quantity)).toFixed(2)
+        subtotal: (parseFloat(item.price) * parseInt(item.quantity)).toFixed(2),
+        extras: item.extras.map(extra => ({
+  extras: (item.extras || []).map((extra, index) => {
+    // Generate a consistent ID based on the extra's name
+    const extraId = extra.id || 
+                    extra.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 
+                    `extra-${index}`;
+    
+    return {
+      id: extraId,
+      name: extra.name || 'Unknown Extra',
+      price: parseFloat(extra.price || 0).toFixed(2)
+    };
+  })
+})),
+        
       })),
       subtotal: subtotal.toFixed(2),
       tax: taxAmount.toFixed(2),
       discount: discountAmount.toFixed(2),
+      serviceCost: numericServiceCost.toFixed(2),
       shippingCost: shippingAmount.toFixed(2),
       total: total.toFixed(2),
       currency: currency.toUpperCase(),
       orderStatus: "pending",
-      paymentStatus: "pending",
+      paymentStatus: paymentStatus || "pending",
       billingAddress: customer.billingAddress || null,
       shippingAddress: customer.shippingAddress || null,
       metadata: {
@@ -378,9 +400,9 @@ if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost))
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       isAccepted: false,
-      storeAddress: string,
-      storePostalCode: string,
-      storeCity: string
+      storeAddress: storeData.address,
+      storePostalCode: storeData.postalCode,
+      storeCity: storeData.City
     };
 
     // Save order to Firestore

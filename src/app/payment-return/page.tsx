@@ -1,25 +1,30 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { CheckCircle, XCircle, Clock, AlertCircle, Sparkles, ArrowRight, RefreshCw } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, AlertCircle, Sparkles, ArrowRight, RefreshCw, CreditCardIcon,  } from 'lucide-react';
 type OrderData = {
   id?: string;
   orderNumber?: string;
   total?: number;
   currency?: string;
   customerEmail?: string;
-  paymentStatus?: 'loading' | 'paid' | 'failed' | 'canceled' | 'expired' | 'pending' | 'error' | string;
+  paymentMethod?: string;
+  paymentStatus?: 'loading' | 'paid' | 'failed' | 'canceled' | 'expired' | 'pending' | 'error' | 'cash_on_delivery' | 'cash_on_pickup' | string;
   metadata?: {
     failureReason?: string;
     orderType?: 'delivery' | 'takeaway';
   };
-  storeAddress: string
-  storeCity: string
-  storePostalCode: string
+  storeAddress: string;
+  storeCity: string;
+  storePostalCode: string;
+  customerName?: string;
+  customerPhone?: string;
+  shippingAddress?: string;
+
 };
 
 export default function PaymentReturnPage() {
-  const [status, setStatus] = useState<'loading' | 'paid' | 'failed' | 'canceled' | 'expired' | 'pending' | 'error' | string>('loading');
+  const [status, setStatus] = useState<'loading' | 'paid' | 'failed' | 'canceled' | 'expired' | 'pending' | 'error'  |  'cash_on_delivery' | 'cash_on_pickup' | string>('loading');
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const isMountedRef = useRef(true);
 
@@ -299,6 +304,151 @@ export default function PaymentReturnPage() {
               className="bg-gradient-to-r from-gray-500 to-gray-600 text-white px-8 py-4 rounded-xl font-bold hover:from-gray-600 hover:to-gray-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
             >
               Back to Home
+            </button>
+          </div>
+        );
+
+              case 'cash_on_pickup':
+        return (
+          <div className="text-center animate-fadeIn">
+            <div className="relative inline-block mb-6">
+              <div className="absolute inset-0 bg-green-200 rounded-full blur-xl opacity-60 animate-pulse"></div>
+              <CheckCircle className="w-24 h-24 text-green-500 relative animate-scaleIn" />
+            </div>
+            <h1 className="text-3xl font-bold mb-3 text-green-700">
+              🎉 Order Successfully Placed! 🎉
+            </h1>
+            <p className="text-gray-700 text-lg mb-6 font-medium">
+              Woohoo! Your order is confirmed and being prepared!
+            </p>
+            {orderData && (
+              <>
+                {/* Order Type Banner */}
+                <div className="mb-6">
+                  {orderData.metadata?.orderType === 'takeaway' ? (
+                    <div className="bg-gradient-to-r from-purple-100 to-pink-100 rounded-xl p-4 border-2 border-purple-300 max-w-md mx-auto">
+                      <p className="text-lg font-bold text-purple-800 mb-2">🏪 Pickup Order</p>
+                      <p className="text-sm text-purple-700 font-medium">Pick up your order from:</p>
+                       {orderData.storeAddress && (
+                        <p className="text-base font-bold text-purple-900 mt-1">
+                          📍 {orderData.storeAddress} {orderData.storePostalCode} {orderData.storeCity}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-gradient-to-r from-blue-100 to-cyan-100 rounded-xl p-4 border-2 border-blue-300 max-w-md mx-auto">
+                      <p className="text-lg font-bold text-blue-800 mb-1">🚚 Delivery Order</p>
+                      <p className="text-sm text-blue-700 font-medium">
+                        Your order will be delivered to your address
+                      </p>
+                       <p className="text-base font-bold text-purple-800 mt-1">
+                          📍  {orderData.shippingAddress}
+                        </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Order Details */}
+                <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 text-left max-w-md mx-auto mb-6 border-2 border-green-200 shadow-lg">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Sparkles className="w-5 h-5 text-green-600" />
+                    <span className="font-bold text-green-800">Order Details</span>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Order Number</p>
+                      <p className="font-bold text-lg text-gray-800">{orderData.orderNumber}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Total To Be Paid</p>
+                      <p className="font-bold text-2xl text-green-700"> €{orderData.total}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Confirmation sent to</p>
+                      <p className="font-bold text-gray-800">{orderData.customerEmail}</p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+            <button
+              onClick={() => window.location.href = '/'}
+              className="group bg-gradient-to-r from-green-500 to-emerald-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:from-green-600 hover:to-emerald-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1 flex items-center gap-2 mx-auto"
+            >
+              Back to Home
+              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            </button>
+          </div>
+        );
+         case 'cash_on_delivery':
+        return (
+          <div className="text-center animate-fadeIn">
+            <div className="relative inline-block mb-6">
+              <div className="absolute inset-0 bg-green-200 rounded-full blur-xl opacity-60 animate-pulse"></div>
+              <CheckCircle className="w-24 h-24 text-green-500 relative animate-scaleIn" />
+            </div>
+            <h1 className="text-3xl font-bold mb-3 text-green-700">
+              🎉 Order Successfully Placed! 🎉
+            </h1>
+            <p className="text-gray-700 text-lg mb-6 font-medium">
+              Woohoo! Your order is confirmed and being prepared!
+            </p>
+            {orderData && (
+              <>
+                {/* Order Type Banner */}
+                <div className="mb-6">
+                  {orderData.metadata?.orderType === 'takeaway' ? (
+                    <div className="bg-gradient-to-r from-purple-100 to-pink-100 rounded-xl p-4 border-2 border-purple-300 max-w-md mx-auto">
+                      <p className="text-lg font-bold text-purple-800 mb-2">🏪 Pickup Order</p>
+                      <p className="text-sm text-purple-700 font-medium">Pick up your order from:</p>
+                       {orderData.storeAddress && (
+                        <p className="text-base font-bold text-purple-900 mt-1">
+                          📍 {orderData.storeAddress} {orderData.storePostalCode} {orderData.storeCity}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-gradient-to-r from-blue-100 to-cyan-100 rounded-xl p-4 border-2 border-blue-300 max-w-md mx-auto">
+                      <p className="text-lg font-bold text-blue-800 mb-1">🚚 Delivery Order</p>
+                      <p className="text-sm text-blue-700 font-medium">
+                        Your order will be delivered to your address
+                      </p>
+                       <p className="text-base font-bold text-purple-800 mt-1">
+                          📍  {orderData.shippingAddress}
+                        </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Order Details */}
+                <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 text-left max-w-md mx-auto mb-6 border-2 border-green-200 shadow-lg">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Sparkles className="w-5 h-5 text-green-600" />
+                    <span className="font-bold text-green-800">Order Details</span>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Order Number</p>
+                      <p className="font-bold text-lg text-gray-800">{orderData.orderNumber}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Total To Be Paid</p>
+                      <p className="font-bold text-2xl text-green-700">€{orderData.total}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Confirmation sent to</p>
+                      <p className="font-bold text-gray-800">{orderData.customerEmail}</p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+            <button
+              onClick={() => window.location.href = '/'}
+              className="group bg-gradient-to-r from-green-500 to-emerald-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:from-green-600 hover:to-emerald-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1 flex items-center gap-2 mx-auto"
+            >
+              Back to Home
+              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
           </div>
         );
