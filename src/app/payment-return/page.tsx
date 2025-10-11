@@ -361,7 +361,7 @@ export default function PaymentReturnPage() {
                     </div>
                     <div>
                       <p className="text-sm text-gray-600 font-medium">Total To Be Paid</p>
-                      <p className="font-bold text-2xl text-green-700">{orderData.currency} {orderData.total}</p>
+                      <p className="font-bold text-2xl text-green-700"> €{orderData.total}</p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-600 font-medium">Confirmation sent to</p>
@@ -433,7 +433,7 @@ export default function PaymentReturnPage() {
                     </div>
                     <div>
                       <p className="text-sm text-gray-600 font-medium">Total To Be Paid</p>
-                      <p className="font-bold text-2xl text-green-700">{orderData.currency} {orderData.total}</p>
+                      <p className="font-bold text-2xl text-green-700">€{orderData.total}</p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-600 font-medium">Confirmation sent to</p>

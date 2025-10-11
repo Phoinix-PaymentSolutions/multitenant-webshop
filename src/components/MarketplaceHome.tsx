@@ -1,59 +1,31 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { ChevronRightIcon, SearchIcon, ShoppingCartIcon, ChevronLeftIcon, MapPin, X } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { ChevronRightIcon, SearchIcon, ShoppingCartIcon, ChevronLeftIcon, MapPin, X, Loader2 } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import '@/lib/appcheck';
 import Image from 'next/image';
+import { searchPostalCode, calculateDistance, type PostalCodeResult } from '@/lib/postalCodeService';
 
 interface Store {
   id: string;
   name: string;
   category: string;
   description: string;
-  // Add these fields to your Firestore stores collection
+  active?: boolean;
   postalCode?: string;
-  lat?: number;
-  lng?: number;
+  latitude?: number;
+  longitude?: number;
   address?: string;
+  formattedAddress?: string;
+  deliveryRadius?: number;
 }
 
 interface Category {
   id: string;
   name: string;
-}
-
-interface PostalCode {
-  code: string;
-  city: string;
-  lat: number;
-  lng: number;
-}
-
-// Dutch postal codes database (simplified - replace with actual API or complete database)
-const postalCodes: PostalCode[] = [
-  { code: "1011", city: "Amsterdam", lat: 52.3676, lng: 4.9041 },
-  { code: "1012", city: "Amsterdam", lat: 52.3702, lng: 4.8952 },
-  { code: "1015", city: "Amsterdam", lat: 52.3680, lng: 4.8820 },
-  { code: "1016", city: "Amsterdam", lat: 52.3584, lng: 4.8811 },
-  { code: "6811", city: "Arnhem", lat: 51.9851, lng: 5.8987 },
-  { code: "6812", city: "Arnhem", lat: 51.9800, lng: 5.9100 },
-  { code: "3011", city: "Rotterdam", lat: 51.9225, lng: 4.4792 },
-  { code: "3512", city: "Utrecht", lat: 52.0907, lng: 5.1214 },
-];
-
-// Calculate distance between two coordinates (Haversine formula)
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Earth's radius in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
 }
 
 export default function MarketplaceHome() {
@@ -63,16 +35,19 @@ export default function MarketplaceHome() {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   
-  // NEW: Location-based filtering states
+  // Location-based filtering states
   const [postalSearchTerm, setPostalSearchTerm] = useState('');
-  const [selectedPostal, setSelectedPostal] = useState<PostalCode | null>(null);
+  const [postalResults, setPostalResults] = useState<PostalCodeResult[]>([]);
+  const [selectedPostal, setSelectedPostal] = useState<PostalCodeResult | null>(null);
   const [showPostalDropdown, setShowPostalDropdown] = useState(false);
-  const [maxDistance, setMaxDistance] = useState(10); // km
+  const [isSearchingPostal, setIsSearchingPostal] = useState(false);
+  const [maxDistance, setMaxDistance] = useState(10);
   const [locationFilterEnabled, setLocationFilterEnabled] = useState(false);
   
   const router = useRouter();
   const categoryListRef = useRef<HTMLDivElement>(null);
   const postalInputRef = useRef<HTMLDivElement>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -85,24 +60,29 @@ export default function MarketplaceHome() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch data on mount
+  // Fetch stores and categories on mount
   useEffect(() => {
     async function fetchData() {
       try {
         const storesSnapshot = await getDocs(collection(db, 'stores'));
-        const fetchedStores: Store[] = storesSnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            name: data.name || '',
-            category: data.StoreCategory || 'Uncategorized',
-            description: data.description || '',
-            postalCode: data.postalCode || '',
-            lat: data.lat || 0,
-            lng: data.lng || 0,
-            address: data.address || '',
-          };
-        });
+        const fetchedStores: Store[] = storesSnapshot.docs
+          .map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              name: data.name || '',
+              category: data.StoreCategory || 'Uncategorized',
+              description: data.description || '',
+              active: data.active ?? true,
+              postalCode: data.postalCode || '',
+              latitude: data.latitude || null,
+              longitude: data.longitude || null,
+              address: data.address || '',
+              formattedAddress: data.formattedAddress || '',
+              deliveryRadius: data.deliveryRadius || null,
+            };
+          })
+          .filter(store => store.active === true);
 
         const categoriesSnapshot = await getDocs(collection(db, 'adminCategories'));
         const fetchedCategories: Category[] = categoriesSnapshot.docs.map(doc => ({
@@ -126,14 +106,41 @@ export default function MarketplaceHome() {
     fetchData();
   }, []);
 
-  // Filter postal codes based on search
-  const filteredPostalCodes = useMemo(() => {
-    if (!postalSearchTerm) return postalCodes;
-    const term = postalSearchTerm.toLowerCase();
-    return postalCodes.filter(pc => 
-      pc.code.includes(term) || pc.city.toLowerCase().includes(term)
-    );
-  }, [postalSearchTerm]);
+  // Debounced postal code search using PDOK API
+  const handlePostalSearch = useCallback(async (query: string) => {
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (!query || query.trim().length < 3) {
+      setPostalResults([]);
+      return;
+    }
+
+    // Debounce the API call
+    searchTimeoutRef.current = setTimeout(async () => {
+      setIsSearchingPostal(true);
+      try {
+        console.log('🔍 Searching for:', query);
+        const results = await searchPostalCode(query);
+        console.log('📍 Results found:', results);
+        setPostalResults(results);
+      } catch (error) {
+        console.error('❌ Error searching postal codes:', error);
+        setPostalResults([]);
+      } finally {
+        setIsSearchingPostal(false);
+      }
+    }, 300); // Wait 300ms after user stops typing
+  }, []);
+
+  // Handle postal code input change
+  const handlePostalInputChange = (value: string) => {
+    setPostalSearchTerm(value);
+    setShowPostalDropdown(true);
+    handlePostalSearch(value);
+  };
 
   // Filter stores with location and other filters
   const filteredStores = useMemo(() => {
@@ -142,12 +149,29 @@ export default function MarketplaceHome() {
     // Apply location filter if enabled
     if (locationFilterEnabled && selectedPostal) {
       filtered = filtered
-        .map(store => ({
-          ...store,
-          distance: store.lat && store.lng 
-            ? calculateDistance(selectedPostal.lat, selectedPostal.lng, store.lat, store.lng)
-            : Infinity
-        }))
+        .map(store => {
+          if (store.latitude && store.longitude) {
+            const distance = calculateDistance(
+              selectedPostal.lat, 
+              selectedPostal.lng, 
+              store.latitude, 
+              store.longitude
+            );
+            
+            const storeDeliveryRadius = store.deliveryRadius || maxDistance;
+            
+            return {
+              ...store,
+              distance: distance,
+              withinDeliveryArea: distance <= storeDeliveryRadius
+            };
+          }
+          return {
+            ...store,
+            distance: Infinity,
+            withinDeliveryArea: false
+          };
+        })
         .filter(store => store.distance !== Infinity && store.distance <= maxDistance)
         .sort((a, b) => a.distance! - b.distance!);
     }
@@ -169,7 +193,7 @@ export default function MarketplaceHome() {
     return filtered;
   }, [stores, searchTerm, activeCategory, locationFilterEnabled, selectedPostal, maxDistance]);
 
-  const handlePostalSelect = (postal: PostalCode) => {
+  const handlePostalSelect = (postal: PostalCodeResult) => {
     setSelectedPostal(postal);
     setPostalSearchTerm(`${postal.code} - ${postal.city}`);
     setShowPostalDropdown(false);
@@ -180,6 +204,7 @@ export default function MarketplaceHome() {
     setSelectedPostal(null);
     setPostalSearchTerm('');
     setLocationFilterEnabled(false);
+    setPostalResults([]);
   };
 
   const scrollCategories = (direction: 'left' | 'right') => {
@@ -227,7 +252,7 @@ export default function MarketplaceHome() {
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-6xl mx-auto w-full">
             <h2 className="text-3xl font-bold mb-8 text-teal-800 text-center">🍽️ Discover Your Favourite Restaurants</h2>
             
-            {/* NEW: Location Filter */}
+            {/* Location Filter with Live PDOK API */}
             <div className="mb-6 bg-gradient-to-r from-orange-50 to-teal-50 rounded-xl p-5 border border-orange-200">
               <div className="flex items-center gap-2 mb-3">
                 <MapPin size={20} className="text-orange-600" />
@@ -238,45 +263,61 @@ export default function MarketplaceHome() {
                 <input
                   type="text"
                   value={postalSearchTerm}
-                  onChange={(e) => {
-                    setPostalSearchTerm(e.target.value);
-                    setShowPostalDropdown(true);
-                  }}
+                  onChange={(e) => handlePostalInputChange(e.target.value)}
                   onFocus={() => setShowPostalDropdown(true)}
-                  placeholder="Enter postal code (e.g. 1011 or Amsterdam)"
+                  placeholder="Enter postal code or city (e.g. 9733 or Groningen)"
                   className="w-full pl-4 pr-10 py-3 rounded-lg border-2 border-orange-300 focus:border-orange-500 focus:outline-none transition-all"
                 />
                 
-                {selectedPostal && locationFilterEnabled && (
+                {/* Loading spinner or clear button */}
+                {isSearchingPostal ? (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <Loader2 size={20} className="animate-spin text-orange-500" />
+                  </div>
+                ) : selectedPostal && locationFilterEnabled ? (
                   <button
                     onClick={clearLocationFilter}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
                     <X size={20} />
                   </button>
-                )}
+                ) : null}
 
-                {/* Postal Code Dropdown */}
-                {showPostalDropdown && filteredPostalCodes.length > 0 && (
+                {/* Postal Code Dropdown with Live Results */}
+                {showPostalDropdown && postalResults.length > 0 && (
                   <div className="absolute z-20 w-full mt-2 bg-white border-2 border-orange-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                    {filteredPostalCodes.map((postal) => (
+                    {postalResults.map((postal, index) => (
                       <button
-                        key={postal.code}
+                        key={`${postal.code}-${index}`}
                         onClick={() => handlePostalSelect(postal)}
                         className="w-full px-4 py-3 text-left hover:bg-orange-50 transition-colors flex items-center gap-3 border-b last:border-b-0"
                       >
                         <MapPin size={16} className="text-orange-500 flex-shrink-0" />
-                        <div>
+                        <div className="flex-grow">
                           <div className="font-semibold text-gray-800">{postal.code}</div>
-                          <div className="text-sm text-gray-500">{postal.city}</div>
+                          <div className="text-sm text-gray-500">
+                            {postal.city}
+                            {postal.municipality && postal.municipality !== postal.city && (
+                              <span className="text-gray-400"> • {postal.municipality}</span>
+                            )}
+                          </div>
                         </div>
                       </button>
                     ))}
                   </div>
                 )}
+
+                {/* Show message when searching but no results */}
+                {showPostalDropdown && !isSearchingPostal && postalSearchTerm.length >= 3 && postalResults.length === 0 && (
+                  <div className="absolute z-20 w-full mt-2 bg-white border-2 border-orange-200 rounded-lg shadow-xl p-4">
+                    <p className="text-sm text-gray-500 text-center">
+                      No postal codes found. Try a different search.
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {/* Distance Slider - only show when location is selected */}
+              {/* Distance Slider */}
               {locationFilterEnabled && selectedPostal && (
                 <div className="mt-4 pt-4 border-t border-orange-200">
                   <div className="flex items-center justify-between mb-2">
@@ -372,7 +413,7 @@ export default function MarketplaceHome() {
                 {filteredStores.length === 0 ? (
                   <p className="text-center text-gray-500 py-10">
                     {locationFilterEnabled 
-                      ? `No shops found within ${maxDistance} km. Try increasing the search radius!`
+                      ? `No shops found within ${maxDistance} km of ${selectedPostal?.city}. Try increasing the search radius!`
                       : 'No shops found matching your criteria. Try another search!'
                     }
                   </p>
@@ -396,17 +437,30 @@ export default function MarketplaceHome() {
                               <span className="px-2 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-700">
                                 {store.category}
                               </span>
-                              {/* Show distance if location filter is active */}
-                              {locationFilterEnabled && selectedPostal && store.lat && store.lng && (
-                                <span className="px-2 py-1 text-xs font-semibold rounded-full bg-teal-100 text-teal-700 flex items-center gap-1">
-                                  <MapPin size={12} />
-                                  {calculateDistance(selectedPostal.lat, selectedPostal.lng, store.lat, store.lng).toFixed(1)} km
-                                </span>
+                              {locationFilterEnabled && selectedPostal && store.latitude && store.longitude && (
+                                <>
+                                  <span className="px-2 py-1 text-xs font-semibold rounded-full bg-teal-100 text-teal-700 flex items-center gap-1">
+                                    <MapPin size={12} />
+                                    {calculateDistance(selectedPostal.lat, selectedPostal.lng, store.latitude, store.longitude).toFixed(1)} km
+                                  </span>
+                                  {/* Show delivery availability badge */}
+                                  {(store as any).deliveryAvailable ? (
+                                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-700 flex items-center gap-1">
+                                      🚚 Delivery available
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-600 flex items-center gap-1">
+                                      🥡 Takeaway only
+                                    </span>
+                                  )}
+                                </>
                               )}
                             </div>
                             <p className="text-md text-gray-600 font-medium">{store.description}</p>
-                            {store.address && (
-                              <p className="text-sm text-gray-500 mt-1">{store.address}</p>
+                            {(store.formattedAddress || store.address) && (
+                              <p className="text-sm text-gray-500 mt-1">
+                                {store.formattedAddress || store.address}
+                              </p>
                             )}
                           </div>
                         </div>

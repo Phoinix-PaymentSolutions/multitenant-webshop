@@ -361,7 +361,22 @@ if (!allowedOrigins.includes(originHost) && !alwaysAllowed.includes(originHost))
         imageUrl: item.imageUrl || null,
         category: item.category || null,
         sku: item.sku || null,
-        subtotal: (parseFloat(item.price) * parseInt(item.quantity)).toFixed(2)
+        subtotal: (parseFloat(item.price) * parseInt(item.quantity)).toFixed(2),
+        extras: item.extras.map(extra => ({
+  extras: (item.extras || []).map((extra, index) => {
+    // Generate a consistent ID based on the extra's name
+    const extraId = extra.id || 
+                    extra.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 
+                    `extra-${index}`;
+    
+    return {
+      id: extraId,
+      name: extra.name || 'Unknown Extra',
+      price: parseFloat(extra.price || 0).toFixed(2)
+    };
+  })
+})),
+        
       })),
       subtotal: subtotal.toFixed(2),
       tax: taxAmount.toFixed(2),
