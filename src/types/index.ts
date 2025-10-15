@@ -18,6 +18,10 @@ export interface Store {
   contactPhone?: string;
   backgroundImageUrl?: string;
   ownerId: string;
+  placeId?: string;
+  latitude?: number;
+  longitude?: number;
+
   // Social media
   socialMedia?: {
     instagram?: string;

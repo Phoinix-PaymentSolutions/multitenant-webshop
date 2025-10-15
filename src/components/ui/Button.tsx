@@ -1,58 +1,65 @@
 // src/components/ui/Button.tsx
-import { ButtonHTMLAttributes, forwardRef } from 'react';
-import { clsx } from 'clsx';
+import React from 'react';
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
-  size?: 'sm' | 'md' | 'lg';
-  loading?: boolean;
+interface ButtonProps {
+  children: React.ReactNode;
+  onClick?: () => void;
+  variant?: 'default' | 'outline' | 'ghost';
+  size?: 'default' | 'sm' | 'lg' | 'icon';
+  className?: string;
+  brandColor?: string;
+  disabled?: boolean;
+  type?: 'button' | 'submit' | 'reset';
 }
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(({
-  className,
-  variant = 'primary',
-  size = 'md',
-  loading = false,
-  disabled,
-  children,
-  ...props
-}, ref) => {
+export const Button = ({ 
+  children, 
+  onClick, 
+  variant = 'default', 
+  size = 'default', 
+  className = '', 
+  brandColor, 
+  disabled, 
+  type = 'button' 
+}: ButtonProps) => {
+  const baseClasses = 'inline-flex items-center justify-center rounded-full font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none relative';
+  
+  const sizeClasses = {
+    default: 'h-10 px-4 py-2 text-base',
+    sm: 'h-9 px-3 text-sm',
+    lg: 'h-11 px-8 text-lg',
+    icon: 'h-10 w-10',
+  }[size];
+
+  const variantClasses = {
+    default: 'text-white shadow-md hover:shadow-lg',
+    outline: 'border-2 border-gray-300 bg-white text-gray-900 hover:bg-gray-50 hover:border-gray-400',
+    ghost: 'hover:bg-gray-100 text-gray-900',
+  }[variant];
+
+  const brandColorStyle = brandColor && variant === 'default' 
+    ? { backgroundColor: brandColor, borderColor: brandColor } 
+    : {};
+
   return (
     <button
-      ref={ref}
-      className={clsx(
-        'inline-flex items-center justify-center rounded-lg font-medium transition-colors',
-        'focus:outline-none focus:ring-2 focus:ring-offset-2',
-        'disabled:opacity-50 disabled:cursor-not-allowed',
-        {
-          // Variants
-          'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500': variant === 'primary',
-          'bg-gray-200 text-gray-900 hover:bg-gray-300 focus:ring-gray-500': variant === 'secondary',
-          'border-2 border-gray-300 bg-transparent hover:bg-gray-50 focus:ring-gray-500': variant === 'outline',
-          'text-gray-700 hover:bg-gray-100 focus:ring-gray-500': variant === 'ghost',
-          
-          // Sizes
-          'px-3 py-1.5 text-sm': size === 'sm',
-          'px-4 py-2 text-base': size === 'md',
-          'px-6 py-3 text-lg': size === 'lg',
-        },
-        className
-      )}
-      disabled={disabled || loading}
-      {...props}
+      type={type}
+      className={`${baseClasses} ${sizeClasses} ${variantClasses} ${className}`}
+      onClick={onClick}
+      disabled={disabled}
+      style={variant === 'default' ? brandColorStyle : {}}
+      onMouseEnter={e => {
+        if (variant === 'default' && !disabled) {
+          e.currentTarget.style.filter = 'brightness(90%)';
+        }
+      }}
+      onMouseLeave={e => {
+        if (variant === 'default') {
+          e.currentTarget.style.filter = 'none';
+        }
+      }}
     >
-      {loading && (
-        <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-      )}
       {children}
     </button>
   );
-});
-
-Button.displayName = 'Button';
-
-
-
+};
