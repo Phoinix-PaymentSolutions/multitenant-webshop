@@ -3,9 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { placeId: string } }
+  { params }: { params: Promise<{ placeId: string }> }
 ) {
-  const { placeId } = params;
+  const { placeId } = await params;
 
   console.log('📍 Reviews API called with placeId:', placeId);
 
